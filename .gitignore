@@ -1,8 +1,13 @@
 # all excel file
 *.xlsx
+.DS_Store
 
 # all /image file
 images/
+
+# Cached file
+__pycache__/
+.ipynb_checkpoints/
 
 # all data file
 data/
