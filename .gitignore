@@ -1,0 +1,10 @@
+# all excel file
+*.xlsx
+
+# all /image file
+images/
+
+# all data file
+data/
+misc/
+output/
