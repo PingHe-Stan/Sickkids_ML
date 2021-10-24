@@ -659,12 +659,12 @@ class RespiratoryTransformer(BaseEstimator, TransformerMixin):
 # Feature selection based on missingness and collinearity
 class ColumnFilter(BaseEstimator, TransformerMixin):
     """
-    Drop the repetitious columns (columns that have a 0.9 correlation factor with any other columns ) with greater missingness and higher correlation with other columns to reduce the dimensionality of feature matrix.
+    Drop the repetitious columns (columns that have a 0.95 correlation factor with any other columns ) with greater missingness and higher correlation with other columns to reduce the dimensionality of feature matrix.
 
     Parameters for Log1pTransformer:
     ----------
 
-    repetition_standard: float, default: 0.9
+    repetition_standard: float, default: 0.95
         Represent the a very high degree of collinearity with other features, need to be removed to help stablizing modeling and interpretability.
 
     corr_threshold: float, default: 0.6
@@ -683,7 +683,7 @@ class ColumnFilter(BaseEstimator, TransformerMixin):
 
     def __init__(
             self,
-            repetition_standard=0.9,
+            repetition_standard=0.95,
             corr_threshold=0.7,
             feature_missingness=0.05,
             corr_and_missing=True,
@@ -1038,6 +1038,229 @@ class CatNaNImputer(BaseEstimator, TransformerMixin):
         return X
 
 
+# Imputation on Numeric features in combination with imputation techniques (Simple, KNN, Missforest, etc)
+class NumNaNimputer(BaseEstimator, TransformerMixin):
+    """
+    Impute Numeric columns based on the characteristics of the each feature
+    -- number of unique values, number of nullness, and feature groups
+
+    :param add_indicator_threshold, default 30
+        Only those with a statistically meaningful intepretation will be add a column
+    :param imputing_corrected_subset, string defautl "KNN"
+        Either KNN or Random Forest will be used for imputating subset of groups that has certain degree of correlation.
+
+    :return Imputed X that could be directly put into ML models
+    """
+
+    def __init__(self, add_indicator_threshold=30, imputing_correlated_subset="KNN"):
+        super().__init__()
+        self.add_indicator_threshold = add_indicator_threshold
+        self.imputing_correlated_subset = imputing_correlated_subset
+        self.num_strategies = (
+            {}
+        )  # Dictionary to store columns for different kind of groups for imputing
+        self.num_strategies_df_ = (
+            pd.DataFrame()
+        )  # DataFrame for overviewing the missingness for different columns
+        # Imputer Initializing
+        if self.imputing_correlated_subset == "KNN":
+            self.BF_imputer = KNNImputer()
+            self.Weight_imputer = KNNImputer()
+            self.RESP_imputer = KNNImputer()
+        else:
+            self.BF_imputer = MissForest()
+            self.Weight_imputer = MissForest()
+            self.RESP_imputer = MissForest()
+        self.Binary_ignore_missing = SimpleImputer(
+            add_indicator=False, strategy="most_frequent"
+        )
+        self.Binary_indicator_missing = SimpleImputer(
+            add_indicator=True, strategy="most_frequent"
+        )
+        self.Nonbinary_ignore_missing = SimpleImputer(
+            add_indicator=False, strategy="median"
+        )
+        self.Nonbinary_indicator_missing = SimpleImputer(
+            add_indicator=True, strategy="median"
+        )
+
+    def fit(self, X, y=None):
+        """
+        Generate numeric columns that will be processed differently based on the X characteristics
+            Only those with a statistically significant missingness will be accompanied with a column of missingness indicator
+        Fitted_outcome:
+            1. Dictionary of different subsets of columns for different imputation schemes that will be referred during transformation.
+                Valid keys include: BF_columns, Weight_columns, Resp_columns, Uni_binary_columns_indicator, Uni_binary_columns_ignore,
+                Uni_nonbinary_columns_indicator_median, Uni_nonbinary_columns_ignore_median
+            2. fitted imputer - using fit method
+            3. Attribute: num_strategies_df_: DataFrame for overviewing the missingness for different columns
+        """
+        # Step 1: Strategize imputation techniques based on X feature characteristics
+        cols_with_na = X.isna().sum()[X.isna().sum() > 0].index
+
+        top_percentage = {}
+        for i in X[cols_with_na].columns:
+            top_percentage[i] = round(
+                (X[i].value_counts(normalize=True).values[0] * 100), 2
+            )
+        per_ser = pd.Series(top_percentage)
+
+        self.num_strategies_df_ = pd.concat(
+            [X[cols_with_na].nunique(), X[cols_with_na].isna().sum(), per_ser], axis=1
+        ).rename(
+            columns={
+                0: "Num_Unique_Values",
+                1: "Num_Missing_Values",
+                2: "Top_Percentage",
+            }
+        )
+
+        self.num_strategies_df_.sort_values(
+            by="Top_Percentage", ascending=False, inplace=True
+        )
+
+        # 1.1 For multi-variate imputation based on subset correlation: (KNN, Miss)
+
+        # Based on pairwise correlation of columns,
+        # KNN imputer for following subset of columns, the rest is more likely to be noise, rather than signal
+        BF_columns = set(X.columns[X.columns.str.contains("BF_")])
+        Weight_columns = set(X.columns[X.columns.str.contains("Weight_")]) | {
+            "Gest_Days"
+        }
+        Resp_columns = set(X.columns[X.columns.str.contains("Wheeze_|RI|Respiratory")])
+
+        self.num_strategies["BF_columns"] = BF_columns
+        self.num_strategies["Weight_columns"] = Weight_columns
+        self.num_strategies["Resp_columns"] = Resp_columns
+
+        # 1.2 For Uni-Variate imputation
+
+        # Simple for the rest columns with na values (Univariate)
+        Ungrouped_columns = set(cols_with_na) - (
+            BF_columns | Weight_columns | Resp_columns
+        )
+        Uni_binary_columns_indicator = set()
+        Uni_binary_columns_ignore = set()
+        Uni_nonbinary_columns_indicator_median = set()
+        Uni_nonbinary_columns_ignore_median = set()
+
+        for col in Ungrouped_columns:
+            # Only mode - can be biased when there is no indicator, however, curse of dimensionality is another concern
+            if (self.num_strategies_df_.loc[col]["Num_Unique_Values"] == 2) & (
+                self.num_strategies_df_.loc[col]["Num_Missing_Values"]
+                < self.add_indicator_threshold
+            ):
+                Uni_binary_columns_ignore.add(col)
+            elif (self.num_strategies_df_.loc[col]["Num_Unique_Values"] == 2) & (
+                self.num_strategies_df_.loc[col]["Num_Missing_Values"]
+                >= self.add_indicator_threshold
+            ):
+                Uni_binary_columns_indicator.add(col)
+            # Middle number will be accepted.
+            elif (self.num_strategies_df_.loc[col]["Num_Unique_Values"] != 2) & (
+                self.num_strategies_df_.loc[col]["Num_Missing_Values"]
+                < self.add_indicator_threshold
+            ):
+                Uni_nonbinary_columns_ignore_median.add(col)
+            else:
+                Uni_nonbinary_columns_indicator_median.add(col)
+
+        self.num_strategies[
+            "Uni_binary_columns_indicator"
+        ] = Uni_binary_columns_indicator
+        self.num_strategies["Uni_binary_columns_ignore"] = Uni_binary_columns_ignore
+        self.num_strategies[
+            "Uni_nonbinary_columns_indicator_median"
+        ] = Uni_nonbinary_columns_indicator_median
+        self.num_strategies[
+            "Uni_nonbinary_columns_ignore_median"
+        ] = Uni_nonbinary_columns_ignore_median
+
+        # Step 2: Begin fitting using different techniques
+
+        # Multi-variate fit:
+        self.BF_imputer.fit(X[self.num_strategies["BF_columns"]])
+        self.Weight_imputer.fit(X[self.num_strategies["Weight_columns"]])
+        self.RESP_imputer.fit(X[self.num_strategies["Resp_columns"]])
+
+        # Uni-variate fit:
+        self.Binary_ignore_missing.fit(
+            X[self.num_strategies["Uni_binary_columns_ignore"]]
+        )
+        self.Binary_indicator_missing.fit(
+            X[self.num_strategies["Uni_binary_columns_indicator"]]
+        )
+        self.Nonbinary_ignore_missing.fit(
+            X[self.num_strategies["Uni_nonbinary_columns_ignore_median"]]
+        )
+        self.Nonbinary_indicator_missing.fit(
+            X[self.num_strategies["Uni_nonbinary_columns_indicator_median"]]
+        )
+
+        return self
+
+    def transform(self, X, y=None):
+
+        # Multi-variate transform
+        X.loc[:, self.num_strategies["BF_columns"]] = self.BF_imputer.transform(
+            X[self.num_strategies["BF_columns"]]
+        )
+        X.loc[:, self.num_strategies["Weight_columns"]] = self.Weight_imputer.transform(
+            X[self.num_strategies["Weight_columns"]]
+        )
+        X.loc[:, self.num_strategies["Resp_columns"]] = self.RESP_imputer.transform(
+            X[self.num_strategies["Resp_columns"]]
+        )
+
+        # Uni-variate transform
+
+        added_columns_binary = [
+            i + "_Missing" for i in self.num_strategies["Uni_binary_columns_indicator"]
+        ]
+        added_columns_nonbinary = [
+            i + "_Missing"
+            for i in self.num_strategies["Uni_nonbinary_columns_indicator_median"]
+        ]
+
+        binary_columns_with_indicator = (
+            list(self.num_strategies["Uni_binary_columns_indicator"])
+            + added_columns_binary
+        )
+        nonbinary_columns_with_indicator = (
+            list(self.num_strategies["Uni_nonbinary_columns_indicator_median"])
+            + added_columns_nonbinary
+        )
+
+        # Begin imputation
+        if len(self.num_strategies["Uni_binary_columns_indicator"]):
+            X[binary_columns_with_indicator] = self.Binary_indicator_missing.transform(
+                X[self.num_strategies["Uni_binary_columns_indicator"]]
+            )
+
+        if len(self.num_strategies["Uni_nonbinary_columns_indicator_median"]):
+            X[
+                nonbinary_columns_with_indicator
+            ] = self.Nonbinary_indicator_missing.transform(
+                X[self.num_strategies["Uni_nonbinary_columns_indicator_median"]]
+            )
+
+        if len(self.num_strategies["Uni_binary_columns_ignore"]):
+            X[
+                list(self.num_strategies["Uni_binary_columns_ignore"])
+            ] = self.Binary_ignore_missing.transform(
+                X[self.num_strategies["Uni_binary_columns_ignore"]]
+            )
+
+        if len(self.num_strategies["Uni_nonbinary_columns_ignore_median"]):
+            X[
+                list(self.num_strategies["Uni_nonbinary_columns_ignore_median"])
+            ] = self.Nonbinary_ignore_missing.transform(
+                X[self.num_strategies["Uni_nonbinary_columns_ignore_median"]]
+            )
+
+        return X
+
+
 # Numeric Imputation strategies based on different numeric features (subset of KNN/RF needs to be added later on)
 def numeric_imputation_selector(X, add_indicator_threshold=30):
     """Generate numeric columns that will be processed differently.
@@ -1224,6 +1447,42 @@ def numeric_imputation(X, imputation_dict, imputing_correlated_subset="KNN"):
     return X
 
 
+# Recheck collinearity after imputation with missingness indicator
+class CollinearRemover(BaseEstimator, TransformerMixin):
+    """
+    Remove one of pair columns that has a very high correlation with another feature, over 0.95
+    :param: collinear_level = 0.95
+    :return: transformed X with no repetitious features
+    """
+
+    def __init__(self, collinear_level):
+        super().__init__()
+        self.collinear_level = collinear_level
+
+    def fit(self, X, y=None):
+        """Find out which features to drop due to very high collinearity
+        """
+        corr_X_df = X.corr()
+        self.repetition_drop = []  # Feature will be dropped because of high correlation
+        self.repetition_dict = {}
+
+        for i, col in enumerate(corr_X_df.columns):
+            for i_name in corr_X_df[col].index[i + 1:]:
+                if corr_X_df[col][i_name] > 0.95:
+                    self.repetition_drop.extend([i_name])
+                    self.repetition_dict[" <> ".join([i_name, corr_X_df[col].name])] = corr_X_df[
+                        col
+                    ][i_name]
+
+        return self
+
+    def transform(self, X, y=None):
+        print(
+            f"Given the correlation threshhold of {self.collinear_level}, the columns that will be removed are:{list(set(self.repetition_drop))}. Please see the following correlation:{self.repetition_dict}"
+        )
+        return X.drop(columns=list(set(self.repetition_drop)), inplace=True)
+
+
 # Generate Test Dataset for feature selection analysis and ML pipeline
 def generate_trainable_dataset(X, y, add_indicator_threshold=30):
     """Generate one sample dataset using customized transformers that can be directly trained and save the sample dataset
@@ -1234,8 +1493,8 @@ def generate_trainable_dataset(X, y, add_indicator_threshold=30):
     BirthTransformer().fit_transform(X)
     Log1pTransformer().fit_transform(X)
     RespiratoryTransformer(first_18m_divide=True).fit_transform(X)
-    ColumnFilter().fit_transform(X)
     DiscretizePSS().fit_transform(X)
+    ColumnFilter().fit_transform(X)
     ImputerStrategizer().fit_transform(X)
     CatNaNImputer().fit_transform(X)
 
@@ -1245,9 +1504,12 @@ def generate_trainable_dataset(X, y, add_indicator_threshold=30):
     # Imputing...
     numeric_imputation(X, imputation_dict=impute_dict)
 
+    # Remove repetitive features
+    CollinearRemover().fit_transform(X)
+
     # Generate test df dataset for feature selection pipeline
     df_for_ml = pd.concat([X, y], axis=1)
 
-    df_for_ml.to_excel(CHILD_RAW_DIR+"CHILD_ml_sample_dataset.xlsx")
+    df_for_ml.to_excel(CHILD_RAW_DIR + "CHILD_ml_sample_dataset.xlsx")
 
     return df_for_ml
