@@ -1,4 +1,5 @@
 # all excel file
+*.pyc
 *.xlsx
 .DS_Store
 .idea/
