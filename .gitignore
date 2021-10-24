@@ -1,6 +1,7 @@
 # all excel file
 *.xlsx
 .DS_Store
+.idea/
 
 # all /image file
 images/
