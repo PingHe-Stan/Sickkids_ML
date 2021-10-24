@@ -192,3 +192,93 @@ FEA_OF_UNUSEDWHEEZE = list({"Wheeze_3m", "Noncold_Wheeze_3m", "Epi_Noncold_Wheez
      "Cumulative_Wheeze_36m", "Cumulative_Wheeze_48m"} - set(TARGET_TO_ENGI) - set(SUB_CAT_WHEEZE_EARLY) - {"Epi_Noncold_Wheeze_3m"})
 FEA_TO_DROP = FEA_OF_TOPIC + FEA_OF_INTEREST + FEA_OF_UNUSEDWHEEZE + FEA_OF_LITTLE
 
+#
+# # Basic
+# import matplotlib.pyplot as plt
+# import numpy as np
+#
+# #Visualization
+# import pandas as pd
+# import seaborn as sns
+#
+# #Preference of Jupyter
+# from IPython.core.interactiveshell import InteractiveShell
+# InteractiveShell.ast_node_interactivity = "all"
+# import warnings
+# warnings.filterwarnings("ignore")
+#
+# #Misc
+# import os
+# import random
+# import researchpy as rp  # For auto-statistics/EDA of dataframe
+# from tqdm.notebook import tqdm  # For process display
+# from functools import reduce
+#
+#
+# #MACHINE LEARNING
+# # Preprocessing
+# from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
+#
+# # Feature selection
+# from sklearn.feature_selection import (
+#     SelectPercentile,
+#     SelectKBest,
+#     SelectFwe,
+#     SelectFpr,
+#     SelectFromModel,
+#     chi2,
+#     mutual_info_classif,
+#     f_classif,
+#     SequentialFeatureSelector,
+#     RFECV,
+# )
+# from sklearn.inspection import permutation_importance
+#
+# # Imbalance Learn
+# from imblearn.over_sampling import RandomOverSampler
+#
+# # Models
+# from sklearn.linear_model import LogisticRegression, Lasso, LassoLarsCV, LassoCV
+# from sklearn.naive_bayes import GaussianNB
+# from sklearn.tree import DecisionTreeClassifier, export_graphviz
+# from sklearn.neighbors import KNeighborsClassifier
+# from sklearn.svm import SVC
+#
+# # Ensemble
+# from sklearn.ensemble import RandomForestClassifier
+# from xgboost import XGBClassifier
+#
+# # Model Metrics, Parameters, Evaluation
+# from sklearn.model_selection import (
+#     StratifiedKFold,
+#     GridSearchCV,
+#     cross_val_score,
+#     train_test_split,
+# )
+#
+#
+# from sklearn.metrics import (
+#     confusion_matrix,
+#     accuracy_score,
+#     roc_curve,
+#     classification_report,
+#     f1_score,
+#     precision_score,
+#     recall_score,
+#     roc_auc_score,
+# )
+#
+# # Pipeline
+# from sklearn.base import BaseEstimator, TransformerMixin
+# from sklearn.compose import ColumnTransformer
+# from sklearn.pipeline import Pipeline, make_pipeline, FeatureUnion
+#
+#
+#
+#
+# import sklearn.neighbors._base
+# import sys
+# sys.modules["sklearn.neighbors.base"] = (
+#     sklearn.neighbors._base)  # To conquer the version naming conflict for use of missingpy
+# from missingpy import MissForest  # For Imputation using Random Forest
+# from sklearn.impute import SimpleImputer, KNNImputer
