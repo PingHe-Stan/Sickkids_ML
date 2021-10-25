@@ -67,6 +67,21 @@ SUB_CAT_BINARY_WITHMISSING = [
     "Mom_Inhalant",
     "Prenatal_Second_Hand",
     "Prenatal_Maternal_Smoke",
+    'Prolonged_Expiration_1yCLA',
+    'Crackles_1yCLA',
+    'Wheeze_1yCLA',
+    'Wheeze_Mother',
+    'Asthma_Mother',
+    'Hayfever_Mother',
+    'AD_Mother',
+    'Pollentress_Mother',
+    'FAllergies_Mother',
+    'Wheeze_Father',
+    'Asthma_Father',
+    'Hayfever_Father',
+    'AD_Father',
+    'Pollentress_Father',
+    'FAllergies_Father'
 ]
 SUB_CAT_OHE = [
     "Study_Center",  # No missing

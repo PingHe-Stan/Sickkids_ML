@@ -240,6 +240,24 @@ def feature_selection(data_path='../data/'):
                                     'Father_Asthma': 'Father_Asthma',
                                     'Parental_Asthma': 'Parental_Asthma'}
 
+    # TODO: Need to update previous two functions & global variables & missingness mapping functions - config as well
+    features_of_parental_allergy = data_path + 'Parental history of allergies.xlsx'
+    variables_of_parental_allergy = {
+        "SubjectNumber": "Subject_Number",
+        "WheezeMother": "Wheeze_Mother",
+        "AsthmaMother": "Asthma_Mother",
+        "HayFeverMother": "Hayfever_Mother",
+        "ADMother": "AD_Mother",
+        "Pollen_tress_Mother": "Pollentress_Mother",
+        "FAllergiesMother": "FAllergies_Mother",
+        "WheezeFather": "Wheeze_Father",
+        "AsthmaFather": "Asthma_Father",
+        "HayFeverFather": "Hayfever_Father",
+        "ADFather": "AD_Father",
+        "Pollen_tress_Father": "Pollentress_Father",
+        "FAllergiesFather": "FAllergies_Father",
+    }
+
     # Environmental
     features_of_breastfeeding = data_path + 'Breastfeeding variables.xlsx'
     variables_of_breastfeeding = {'SubjectNumber': 'Subject_Number', 'BF_duration_imp': 'BF_Implied_Duration',
@@ -291,6 +309,11 @@ def feature_selection(data_path='../data/'):
                         'CHCLA3YQ4_1b': 'Diastolic_BP_3yCLA', 'CHCLA3YQ4_2': 'Pulse_Rate_3yCLA',
                         'CHCLA3YQ8': 'Wheeze_3yCLA', 'CHCLA3YQ31': 'Asthma_Diagnosis_3yCLA',
                         'CHCLA3YQ31_1': 'Viral_Asthma_3yCLA', 'CHCLA3YQ31_2': 'Triggered_Asthma_3yCLA'}
+
+    # TODO: Need to update previous two functions & global variables - config as well
+    target_of_1y = data_path + '1 year q192CHCLA1Y.xlsx'
+    yvariables_of_1y = {'SubjectNumber': 'Subject_Number', 'CHCLA1YQ11_1': 'Prolonged_Expiration_1yCLA',
+                        'CHCLA1YQ11_2': 'Crackles_1yCLA', 'CHCLA1YQ11_3': 'Wheeze_1yCLA'}
 
     # Recurrent Wheeze at 3y and 5y
     target_of_recwheeze = data_path + 'Wheeze derived variables.xlsx'
@@ -413,7 +436,40 @@ def data_mapping(merged_df=None):
                                            'CSED_6m', 'PSS_12m', 'CSED_12m', 'PSS_18m', 'CSED_18m', 'PSS_24m',
                                            'CSED_24m']].replace({8888.0: np.nan, 999.0: np.nan})
 
-    # Target 3y 
+    # Parental allergy history
+    df_mapping[['Wheeze_Mother',
+                'Asthma_Mother',
+                'Hayfever_Mother',
+                'AD_Mother',
+                'Pollentress_Mother',
+                'FAllergies_Mother',
+                'Wheeze_Father',
+                'Asthma_Father',
+                'Hayfever_Father',
+                'AD_Father',
+                'Pollentress_Father',
+                'FAllergies_Father']] = df_mapping[['Wheeze_Mother',
+                'Asthma_Mother',
+                'Hayfever_Mother',
+                'AD_Mother',
+                'Pollentress_Mother',
+                'FAllergies_Mother',
+                'Wheeze_Father',
+                'Asthma_Father',
+                'Hayfever_Father',
+                'AD_Father',
+                'Pollentress_Father',
+                'FAllergies_Father']].replace({8888.0: np.nan, 999.0: np.nan, 8: np.nan, 9: np.nan})
+
+
+    # Target/Variables 1y
+    df_mapping[['Prolonged_Expiration_1yCLA',
+    'Crackles_1yCLA',
+    'Wheeze_1yCLA']] = df_mapping[['Prolonged_Expiration_1yCLA',
+    'Crackles_1yCLA',
+    'Wheeze_1yCLA']].replace({8888.0: np.nan, 999.0: np.nan})
+
+    # Target 3y
     df_mapping[['Systolic_BP_3yCLA', 'Diastolic_BP_3yCLA', 'Pulse_Rate_3yCLA',
                 'Wheeze_3yCLA', 'Asthma_Diagnosis_3yCLA', 'Viral_Asthma_3yCLA',
                 'Triggered_Asthma_3yCLA', ]] = df_mapping[
@@ -542,10 +598,8 @@ def generate_raw_xlsx(data_path='../data/', output_path='../output'):
     df_mapped = data_mapping(feature_tuple[2])
     reversed_feature = dummy_reversed_features(feature_tuple)
     df_child_raw = pd.merge(df_mapped, reversed_feature.iloc[:, :3].replace({'Unknown': np.nan}), how='left',
-                                     on='Subject_Number')  # The last two are engineered and therefore are left-out
+                            on='Subject_Number')  # The last two are engineered and therefore are left-out
     print(f'The DataFrame for ML is saved to {output_path} ')
     df_child_raw.to_excel(output_path + '/CHILD_raw.xlsx', index=False)
 
     return df_child_raw
-
-
