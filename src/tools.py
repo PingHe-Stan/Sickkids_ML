@@ -208,7 +208,8 @@ def sample_selector(df, max_nan_per_sample=10, differentiate=False):
 
     print("")
     print(f"The total number of dropped samples is {total_sample_dropped}")
-
+    print("************************************************************************")
+    print("An excel file has been written to /output/unprocessed_targeted_raw_child.xlsx")
     df_samples_kept.to_excel("../output/unprocessed_targeted_raw_child.xlsx")
 
     return df_samples_kept, X, y, df_samples_dropped
@@ -233,13 +234,15 @@ def generate_trainable_dataset(X, y, add_indicator_threshold=30):
     # Generate test df dataset for feature selection pipeline
     df_for_ml = pd.concat([X, y], axis=1)
 
+    print("A trainable dataset is created in the ..output/CHILD_ml_sample_dataset.xlsx!")
+
     df_for_ml.to_excel(CHILD_RAW_DIR + "CHILD_ml_sample_dataset.xlsx")
 
     return df_for_ml
 
 
 # Quick overview of self-written functions and classes of imported libraries
-def view_module_functions(module_alias): # Examples: print(view_module_functions(UT))
+def view_module_functions(module_alias):  # Examples: print(view_module_functions(UT))
     """
     Quick review of self-written functions and classes
     """
@@ -277,7 +280,7 @@ def df_summary(X):
             ],
             axis=1,
         )
-        .rename(
+            .rename(
             columns={
                 0: "Num_Unique_Values",
                 1: "Mean_Value",
@@ -287,11 +290,10 @@ def df_summary(X):
                 5: "Variance",
             }
         )
-        .sort_values(by="Top_Percentage", ascending=False)
+            .sort_values(by="Top_Percentage", ascending=False)
     )
 
     return df_overview
-
 
 # Gadget to view the asthma proportions for different columns during feature selection
 def view_y_proportions(df, columns_of_interest, thresh=0):
@@ -394,5 +396,3 @@ def randomsubset_permutation_importance(*, X=None, y=None, clf: object, percenti
                 f"{r.importances_mean[i]:.3f}"
                 f" +/- {r.importances_std[i]:.3f}"
             )
-
-
