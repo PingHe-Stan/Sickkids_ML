@@ -986,65 +986,74 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
         # Step 2: Begin fitting using different techniques
 
         # Multi-variate fit:
-        self.BF_imputer.fit(X[self.num_strategies["BF_columns"]])
-        self.Weight_imputer.fit(X[self.num_strategies["Weight_columns"]])
-        self.RESP_imputer.fit(X[self.num_strategies["Resp_columns"]])
+        if len(self.num_strategies["BF_columns"]):
+            self.BF_imputer.fit(X[self.num_strategies["BF_columns"]])
+        if len(self.num_strategies["Weight_columns"]):
+            self.Weight_imputer.fit(X[self.num_strategies["Weight_columns"]])
+        if len(self.num_strategies["Resp_columns"]):
+            self.RESP_imputer.fit(X[self.num_strategies["Resp_columns"]])
 
         # Uni-variate fit:
-        self.Binary_ignore_missing.fit(
-            X[self.num_strategies["Uni_binary_columns_ignore"]]
-        )
-        self.Binary_indicator_missing.fit(
-            X[self.num_strategies["Uni_binary_columns_indicator"]]
-        )
-        self.Nonbinary_ignore_missing.fit(
-            X[self.num_strategies["Uni_nonbinary_columns_ignore_median"]]
-        )
-        self.Nonbinary_indicator_missing.fit(
-            X[self.num_strategies["Uni_nonbinary_columns_indicator_median"]]
-        )
+        if len(self.num_strategies["Uni_binary_columns_indicator"]):
+            self.Binary_indicator_missing.fit(
+                X[self.num_strategies["Uni_binary_columns_indicator"]]
+            )
+
+        if len(self.num_strategies["Uni_nonbinary_columns_indicator_median"]):
+            self.Nonbinary_indicator_missing.fit(
+                X[self.num_strategies["Uni_nonbinary_columns_indicator_median"]]
+            )
+
+        if len(self.num_strategies["Uni_binary_columns_ignore"]):
+            self.Binary_ignore_missing.fit(
+                X[self.num_strategies["Uni_binary_columns_ignore"]]
+            )
+
+        if len(self.num_strategies["Uni_nonbinary_columns_ignore_median"]):
+            self.Nonbinary_ignore_missing.fit(
+                X[self.num_strategies["Uni_nonbinary_columns_ignore_median"]]
+            )
 
         return self
 
     def transform(self, X, y=None):
 
         # Multi-variate transform
-        X.loc[:, self.num_strategies["BF_columns"]] = self.BF_imputer.transform(
-            X[self.num_strategies["BF_columns"]]
-        )
-        X.loc[:, self.num_strategies["Weight_columns"]] = self.Weight_imputer.transform(
-            X[self.num_strategies["Weight_columns"]]
-        )
-        X.loc[:, self.num_strategies["Resp_columns"]] = self.RESP_imputer.transform(
-            X[self.num_strategies["Resp_columns"]]
-        )
+        if len(self.num_strategies["BF_columns"]):
+            X.loc[:, self.num_strategies["BF_columns"]] = self.BF_imputer.transform(
+                X[self.num_strategies["BF_columns"]]
+            )
+        if len(self.num_strategies["Weight_columns"]):
+            X.loc[:, self.num_strategies["Weight_columns"]] = self.Weight_imputer.transform(
+                X[self.num_strategies["Weight_columns"]]
+            )
+        if len(self.num_strategies["Resp_columns"]):
+            X.loc[:, self.num_strategies["Resp_columns"]] = self.RESP_imputer.transform(
+                X[self.num_strategies["Resp_columns"]]
+            )
 
         # Uni-variate transform
-
-        added_columns_binary = [
-            i + "_Missing" for i in self.num_strategies["Uni_binary_columns_indicator"]
-        ]
-        added_columns_nonbinary = [
-            i + "_Missing"
-            for i in self.num_strategies["Uni_nonbinary_columns_indicator_median"]
-        ]
-
-        binary_columns_with_indicator = (
-            list(self.num_strategies["Uni_binary_columns_indicator"])
-            + added_columns_binary
-        )
-        nonbinary_columns_with_indicator = (
-            list(self.num_strategies["Uni_nonbinary_columns_indicator_median"])
-            + added_columns_nonbinary
-        )
-
-        # Begin imputation
         if len(self.num_strategies["Uni_binary_columns_indicator"]):
+            added_columns_binary = [
+                i + "_Missing" for i in self.num_strategies["Uni_binary_columns_indicator"]
+            ]
+            binary_columns_with_indicator = (
+                    list(self.num_strategies["Uni_binary_columns_indicator"])
+                    + added_columns_binary
+            )
             X[binary_columns_with_indicator] = self.Binary_indicator_missing.transform(
                 X[self.num_strategies["Uni_binary_columns_indicator"]]
             )
 
         if len(self.num_strategies["Uni_nonbinary_columns_indicator_median"]):
+            added_columns_nonbinary = [
+                i + "_Missing"
+                for i in self.num_strategies["Uni_nonbinary_columns_indicator_median"]
+            ]
+            nonbinary_columns_with_indicator = (
+                    list(self.num_strategies["Uni_nonbinary_columns_indicator_median"])
+                    + added_columns_nonbinary
+            )
             X[
                 nonbinary_columns_with_indicator
             ] = self.Nonbinary_indicator_missing.transform(
@@ -1283,6 +1292,9 @@ class CollinearRemover(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
+        print(
+            "********************************************************************************"
+        )
         print(
             f"Given the correlation threshhold of {self.collinear_level}, the columns that will be removed are:{list(set(self.repetition_drop))}. Please see the following correlation:{self.repetition_dict}"
         )
