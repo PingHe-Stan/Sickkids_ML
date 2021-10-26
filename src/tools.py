@@ -5,8 +5,9 @@ __date__ = '2021-10-21'
 import numpy as np
 import pandas as pd
 import random
-from sklearn.inspection import permutation_importance
 import matplotlib.pyplot as plt
+import seaborn as sns
+from collections import defaultdict
 
 from conf import *  # Import Global Variables
 from utils import (ApgarTransformer,
@@ -20,6 +21,29 @@ from utils import (ApgarTransformer,
                    NumNaNimputer,
                    CollinearRemover)
 
+# ML Libraries
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import (
+    confusion_matrix,
+    accuracy_score,
+    roc_curve,
+    classification_report,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import GaussianNB
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.tree import DecisionTreeClassifier, export_graphviz
+from xgboost import XGBClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+
+from sklearn.inspection import permutation_importance
+
 
 # Load more variables to existing xlsx
 def load_child_with_more(
@@ -32,7 +56,7 @@ def load_child_with_more(
     """
 
     print(
-        f"Loading {child_ethnicity_path, child_data_path, child_breastfeeding_path, child_ethnicity_path}, and merging")
+        f"Loading {child_ethnicity_path, child_data_path, child_breastfeeding_path, child_wheezephenotype_path}, and merging")
     df_child = pd.read_excel(child_data_path)
 
     df_bf = pd.read_excel(child_breastfeeding_path)
@@ -73,7 +97,7 @@ def load_child_with_more(
 
     df_child = pd.merge(df_child, df_ethnicity, on="Subject_Number", how="left")
     df_child.to_excel(CHILD_RAW_DIR + "CHILD_with_addon.xlsx", index=False)
-    print(f"The dataframe merged with more information is saved to {CHILD_RAW_DIR} with name of CHILD_with_addon.xlsx")
+    print(f"The dataframe merged with more information is saved to {CHILD_RAW_DIR} as 'CHILD_with_addon.xlsx'")
 
     return df_child
 
@@ -272,7 +296,7 @@ def df_summary(X):
         pd.concat(
             [
                 X[cols_to_inspect].nunique(),
-                X[cols_to_inspect].mean(),
+                X[cols_to_inspect].median(),
                 per_ser,
                 X[cols_to_inspect].max(),
                 X[cols_to_inspect].sum(),
@@ -283,7 +307,7 @@ def df_summary(X):
             .rename(
             columns={
                 0: "Num_Unique_Values",
-                1: "Mean_Value",
+                1: "Median_Value",
                 2: "Top_Percentage",
                 3: "Max_Value",
                 4: "Number_of_Binary_Positive",
@@ -294,6 +318,7 @@ def df_summary(X):
     )
 
     return df_overview
+
 
 # Gadget to view the asthma proportions for different columns during feature selection
 def view_y_proportions(df, columns_of_interest, thresh=0):
@@ -396,3 +421,392 @@ def randomsubset_permutation_importance(*, X=None, y=None, clf: object, percenti
                 f"{r.importances_mean[i]:.3f}"
                 f" +/- {r.importances_std[i]:.3f}"
             )
+
+
+# Run various ML models and return confusion matrix dataframe,  model performance dataframe
+# and colored feature importance dataframe
+def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_scoring='f1'):
+    """
+    Current model cohorts include:
+        Linear model: Logistic Regression,
+        Probability model: Gaussian Naive Bayes,
+        Tree model: Decision Tree,
+        Boundary based: Support Vector Machine,
+        Distance based: K Nearest Neighbors,
+        Ensemble bagging: Random Forest,
+        Ensemble boosting: eXtreme Gradient Boost,
+    Other models that could be added:
+        Neural Network: Multi-layer Perceptron Classifier
+        Ensemble voting: Soft voting based on probability/Hard voting
+        Ensemble stacking: Use a mega-estimator and previous results as input to predict
+
+    :param scoring_func: a predefined function, default: f1_score
+        model_scoring has to be one of accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+        since it must have the same name of sklearn.metrics functions
+
+    :param importance_scoring: string, default: f1
+        importance_scoring has to be one of 'accuracy', 'f1', 'precision', 'recall', 'roc_auc',
+        since it must be recognizable as a parameter to be put into permutation importance
+
+    :return: Confusion matrix dataframe, model performance, feature importance
+    """
+    # A dictionary that will store the performance score of models to evaluate feature importance
+    model_score = {}
+
+    # A dictionary that will store the confusion matrix results as string to easy comparision
+    model_cm = {}
+
+    # A dictionary that will store the feature importance for different models
+    model_feature = {}
+
+    # ---------------------------------------------------------------------------
+    # Model 1: Logistic Regression
+    # ---------------------------------------------------------------------------
+
+    # Train & Predict
+    model_lr = "Logistic_Regression"
+    lr = LogisticRegression()
+    lr.fit(X_train, y_train)
+    predicted = lr.predict(X_test)
+
+    # Record results
+    model_score[model_lr] = scoring_func(y_test, predicted)
+    model_cm[model_lr] = str(
+        {
+            k: dict(v)
+            for k, v in dict(
+                pd.DataFrame(
+                    confusion_matrix(y_test, predicted),
+                    columns=["Pred_0", "Pred_1"],
+                    index=["True_0", "True_1"],
+                )
+            ).items()
+        }
+    )
+    model_feature[model_lr] = lr.coef_.reshape(1, -1)[0]
+
+    # Display model info
+    print(f"confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+    print(
+        f"The performance score of Logistic Regression: {model_score[model_lr] * 100} \n"
+    )
+    print(classification_report(y_test, predicted))
+
+    # Plot visualization of feature importance
+    imp_features_lr = pd.DataFrame(
+        data=lr.coef_.reshape((-1, 1)), index=X_test.columns, columns=[model_lr],
+    )
+    imp_features_lr.sort_values(model_lr, ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=imp_features_lr, y=imp_features_lr.index, x=imp_features_lr[model_lr],
+    )
+
+    # ---------------------------------------------------------------------------
+    # Model 2: Gaussian Naive Bayes
+    # ---------------------------------------------------------------------------
+
+    # Train & Predict
+    model_nb = "Naive_Bayes"
+    nb = GaussianNB()
+    nb.fit(X_train, y_train)
+    predicted = nb.predict(X_test)
+
+    # Record results
+    model_score[model_nb] = scoring_func(y_test, predicted)
+    model_cm[model_nb] = str(
+        {
+            k: dict(v)
+            for k, v in dict(
+                pd.DataFrame(
+                    confusion_matrix(y_test, predicted),
+                    columns=["Pred_0", "Pred_1"],
+                    index=["True_0", "True_1"],
+                )
+            ).items()
+        }
+    )
+
+    result = permutation_importance(
+        nb,
+        X_train,
+        y_train,
+        n_repeats=10,
+        random_state=1012,
+        scoring=importance_scoring,
+    )
+
+    model_feature[model_nb] = result.importances_mean.reshape(1, -1)[0]
+
+    # Display model info
+    print(f"confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+    print(
+        f"The performance score of Gaussian Naive Bayes: {model_score[model_nb] * 100} \n"
+    )
+    print(classification_report(y_test, predicted))
+
+    # Visualization of feature importance for permutation importance
+    perm_sorted_idx = result.importances_mean.argsort()
+    plt.figure(figsize=(20, 10))
+    plt.title("Feature Importance for Gaussian Naive Bayes Modelling")
+    plt.barh(
+        width=result.importances_mean[perm_sorted_idx].T,
+        y=X_train.columns[perm_sorted_idx],
+    )
+
+    # ---------------------------------------------------------------------------
+    # Model 3: Random Forest Classifier
+    # ---------------------------------------------------------------------------
+
+    # Train & Predict
+    model_rf = "Random_Forest"
+    rf = RandomForestClassifier(n_estimators=20, random_state=12, max_depth=5)
+    rf.fit(X_train, y_train)
+    predicted = rf.predict(X_test)
+
+    # Record results
+    model_score[model_rf] = scoring_func(y_test, predicted)
+    model_cm[model_rf] = str(
+        {
+            k: dict(v)
+            for k, v in dict(
+                pd.DataFrame(
+                    confusion_matrix(y_test, predicted),
+                    columns=["Pred_0", "Pred_1"],
+                    index=["True_0", "True_1"],
+                )
+            ).items()
+        }
+    )
+
+    model_feature[model_rf] = rf.feature_importances_.reshape(1, -1)[0]
+
+    # Display model info
+    print(f"confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+    print(f"The performance score of Random Forest: {model_score[model_rf] * 100} \n")
+    print(classification_report(y_test, predicted))
+
+    # Plot visualization of feature importance
+    imp_features_rf = pd.DataFrame(
+        data=rf.feature_importances_, index=X_test.columns, columns=[model_rf],
+    )
+    imp_features_rf.sort_values(model_rf, ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=imp_features_rf, y=imp_features_rf.index, x=imp_features_rf[model_rf],
+    )
+
+    # ---------------------------------------------------------------------------
+    # Model 4: K Nearest Neighbors
+    # ---------------------------------------------------------------------------
+
+    # Train & Predict
+    model_knn = "K_Nearest_Neighbors"
+    knn = KNeighborsClassifier(n_neighbors=12)
+    knn.fit(X_train, y_train)
+    predicted = knn.predict(X_test)
+
+    # Record results
+    model_score[model_knn] = scoring_func(y_test, predicted)
+    model_cm[model_knn] = str(
+        {
+            k: dict(v)
+            for k, v in dict(
+                pd.DataFrame(
+                    confusion_matrix(y_test, predicted),
+                    columns=["Pred_0", "Pred_1"],
+                    index=["True_0", "True_1"],
+                )
+            ).items()
+        }
+    )
+
+    result = permutation_importance(
+        knn,
+        X_train,
+        y_train,
+        n_repeats=10,
+        random_state=1012,
+        scoring=importance_scoring,
+    )
+
+    model_feature[model_knn] = result.importances_mean.reshape(1, -1)[0]
+
+    # Display model info
+    print(f"Confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+    print(
+        f"The performance score of K Nearest Neighbors: {model_score[model_knn] * 100} \n"
+    )
+    print(classification_report(y_test, predicted))
+
+    # Visualization of feature importance for permutation importance
+    perm_sorted_idx = result.importances_mean.argsort()
+    plt.figure(figsize=(12, 8), dpi=200)
+    plt.title("Feature Importance for K Nearest Neighbors Modelling")
+    plt.barh(
+        width=result.importances_mean[perm_sorted_idx].T,
+        y=X_train.columns[perm_sorted_idx],
+    )
+
+    # ---------------------------------------------------------------------------
+    # Model 5: Decision Tree
+    # ---------------------------------------------------------------------------
+
+    # Train & Predict
+    model_dt = "Decision_Tree"
+    dt = DecisionTreeClassifier(criterion="entropy", random_state=0, max_depth=6)
+    dt.fit(X_train, y_train)
+    predicted = dt.predict(X_test)
+
+    # Record results
+    model_score[model_dt] = scoring_func(y_test, predicted)
+    model_cm[model_dt] = str(
+        {
+            k: dict(v)
+            for k, v in dict(
+                pd.DataFrame(
+                    confusion_matrix(y_test, predicted),
+                    columns=["Pred_0", "Pred_1"],
+                    index=["True_0", "True_1"],
+                )
+            ).items()
+        }
+    )
+
+    model_feature[model_dt] = dt.feature_importances_.reshape(1, -1)[0]
+
+    # Display model info
+    print(f"Confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+    print(f"The performance score of Random Forest: {model_score[model_dt] * 100} \n")
+    print(classification_report(y_test, predicted))
+
+    # Plot visualization of feature importance
+    imp_features_dt = pd.DataFrame(
+        data=dt.feature_importances_, index=X_test.columns, columns=[model_dt],
+    )
+    imp_features_dt.sort_values(model_dt, ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=imp_features_dt, y=imp_features_dt.index, x=imp_features_dt[model_dt],
+    )
+
+    # ---------------------------------------------------------------------------
+    # Model 6: Support Vector Machine
+    # ---------------------------------------------------------------------------
+
+    # Train & Test
+    model_svc = "Support Vector Classifier"
+    svc = SVC(kernel="rbf", C=6)
+    svc.fit(X_train, y_train)
+    predicted = svc.predict(X_test)
+
+    # Record results
+    model_score[model_svc] = scoring_func(y_test, predicted)
+    model_cm[model_svc] = str(
+        {
+            k: dict(v)
+            for k, v in dict(
+                pd.DataFrame(
+                    confusion_matrix(y_test, predicted),
+                    columns=["Pred_0", "Pred_1"],
+                    index=["True_0", "True_1"],
+                )
+            ).items()
+        }
+    )
+
+    result = permutation_importance(
+        svc,
+        X_train,
+        y_train,
+        n_repeats=10,
+        random_state=1012,
+        scoring=importance_scoring,
+    )
+
+    model_feature[model_svc] = result.importances_mean.reshape(1, -1)[0]
+
+    # Display model info
+    print(f"Confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+    print(
+        f"The performance score of K Nearest Neighbors: {model_score[model_svc] * 100} \n"
+    )
+    print(classification_report(y_test, predicted))
+
+    # Visualization of feature importance for permutation importance
+    perm_sorted_idx = result.importances_mean.argsort()
+    plt.figure(figsize=(12, 8), dpi=200)
+    plt.title("Feature Importance for Support Vector Machine Modelling")
+    plt.barh(
+        width=result.importances_mean[perm_sorted_idx].T,
+        y=X_train.columns[perm_sorted_idx],
+    )
+
+    # ---------------------------------------------------------------------------
+    # Model 7: Extreme Gradient Boost
+    # ---------------------------------------------------------------------------
+
+    # Train & Test
+    model_xgb = "Extreme_Gradient_Boost"
+    xgb = XGBClassifier(learning_rate=0.01, n_estimators=25)
+    xgb.fit(X_train, y_train)
+    predicted = xgb.predict(X_test)
+
+    # Record results
+    model_score[model_xgb] = scoring_func(y_test, predicted)
+    model_cm[model_xgb] = str(
+        {
+            k: dict(v)
+            for k, v in dict(
+                pd.DataFrame(
+                    confusion_matrix(y_test, predicted),
+                    columns=["Pred_0", "Pred_1"],
+                    index=["True_0", "True_1"],
+                )
+            ).items()
+        }
+    )
+
+    model_feature[model_xgb] = rf.feature_importances_.reshape(1, -1)[0]
+
+    # Display model info
+    print(f"confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+    print(f"The performance score of Random Forest: {model_score[model_xgb] * 100} \n")
+    print(classification_report(y_test, predicted))
+
+    # Plot visualization of feature importance
+    imp_features_xgb = pd.DataFrame(
+        data=xgb.feature_importances_, index=X_test.columns, columns=[model_xgb],
+    )
+    imp_features_xgb.sort_values(model_xgb, ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=imp_features_xgb, y=imp_features_xgb.index, x=imp_features_xgb[model_xgb],
+    )
+
+    # Put all metrics together
+    score_dict = defaultdict(list)
+
+    models = [lr, nb, rf, knn, dt, svc, xgb]
+    model_names = [
+        "Logistic Regression",
+        "Naive Bayes",
+        "Random Forest",
+        "K-Nearest Neighbour",
+        "Decision Tree",
+        "Support Vector Machine",
+        "Extreme Gradient Boost",
+    ]
+    measurements = [accuracy_score, f1_score, precision_score, recall_score, roc_auc_score]
+    measurement_names = ["Accuracy", "F1 score", "Precision", "Recall", "AUC"]
+
+    for i in range(len(models)):
+        score_dict["Model"].append(model_names[i])
+        for j in range(len(measurements)):
+            score_dict[measurement_names[j]].append(
+                measurements[j](y_test, models[i].predict(X_test))
+            )
+
+    score_df = pd.DataFrame(score_dict).set_index("Model")
+
+    return score_df, model_score, model_cm, model_feature, dt
