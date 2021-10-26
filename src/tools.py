@@ -1,5 +1,10 @@
 __author__ = 'Stan He@Sickkids.ca'
 __date__ = '2021-10-21'
+
+from typing import Union, Any
+
+from pandas import Series
+
 """Gadgets for various tasks 
 """
 import numpy as np
@@ -20,6 +25,10 @@ from utils import (ApgarTransformer,
                    CatNaNImputer,
                    NumNaNimputer,
                    CollinearRemover)
+# Imbalance dataset
+from imblearn.under_sampling import RandomUnderSampler
+from imblearn.over_sampling import RandomOverSampler
+
 
 # ML Libraries
 from sklearn.preprocessing import MinMaxScaler
@@ -475,12 +484,12 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
         {
             k: dict(v)
             for k, v in dict(
-                pd.DataFrame(
-                    confusion_matrix(y_test, predicted),
-                    columns=["Pred_0", "Pred_1"],
-                    index=["True_0", "True_1"],
-                )
-            ).items()
+            pd.DataFrame(
+                confusion_matrix(y_test, predicted),
+                columns=["Pred_0", "Pred_1"],
+                index=["True_0", "True_1"],
+            )
+        ).items()
         }
     )
     model_feature[model_lr] = lr.coef_.reshape(1, -1)[0]
@@ -518,12 +527,12 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
         {
             k: dict(v)
             for k, v in dict(
-                pd.DataFrame(
-                    confusion_matrix(y_test, predicted),
-                    columns=["Pred_0", "Pred_1"],
-                    index=["True_0", "True_1"],
-                )
-            ).items()
+            pd.DataFrame(
+                confusion_matrix(y_test, predicted),
+                columns=["Pred_0", "Pred_1"],
+                index=["True_0", "True_1"],
+            )
+        ).items()
         }
     )
 
@@ -570,12 +579,12 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
         {
             k: dict(v)
             for k, v in dict(
-                pd.DataFrame(
-                    confusion_matrix(y_test, predicted),
-                    columns=["Pred_0", "Pred_1"],
-                    index=["True_0", "True_1"],
-                )
-            ).items()
+            pd.DataFrame(
+                confusion_matrix(y_test, predicted),
+                columns=["Pred_0", "Pred_1"],
+                index=["True_0", "True_1"],
+            )
+        ).items()
         }
     )
 
@@ -612,12 +621,12 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
         {
             k: dict(v)
             for k, v in dict(
-                pd.DataFrame(
-                    confusion_matrix(y_test, predicted),
-                    columns=["Pred_0", "Pred_1"],
-                    index=["True_0", "True_1"],
-                )
-            ).items()
+            pd.DataFrame(
+                confusion_matrix(y_test, predicted),
+                columns=["Pred_0", "Pred_1"],
+                index=["True_0", "True_1"],
+            )
+        ).items()
         }
     )
 
@@ -664,12 +673,12 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
         {
             k: dict(v)
             for k, v in dict(
-                pd.DataFrame(
-                    confusion_matrix(y_test, predicted),
-                    columns=["Pred_0", "Pred_1"],
-                    index=["True_0", "True_1"],
-                )
-            ).items()
+            pd.DataFrame(
+                confusion_matrix(y_test, predicted),
+                columns=["Pred_0", "Pred_1"],
+                index=["True_0", "True_1"],
+            )
+        ).items()
         }
     )
 
@@ -706,12 +715,12 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
         {
             k: dict(v)
             for k, v in dict(
-                pd.DataFrame(
-                    confusion_matrix(y_test, predicted),
-                    columns=["Pred_0", "Pred_1"],
-                    index=["True_0", "True_1"],
-                )
-            ).items()
+            pd.DataFrame(
+                confusion_matrix(y_test, predicted),
+                columns=["Pred_0", "Pred_1"],
+                index=["True_0", "True_1"],
+            )
+        ).items()
         }
     )
 
@@ -758,12 +767,12 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
         {
             k: dict(v)
             for k, v in dict(
-                pd.DataFrame(
-                    confusion_matrix(y_test, predicted),
-                    columns=["Pred_0", "Pred_1"],
-                    index=["True_0", "True_1"],
-                )
-            ).items()
+            pd.DataFrame(
+                confusion_matrix(y_test, predicted),
+                columns=["Pred_0", "Pred_1"],
+                index=["True_0", "True_1"],
+            )
+        ).items()
         }
     )
 
@@ -810,3 +819,63 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
     score_df = pd.DataFrame(score_dict).set_index("Model")
 
     return score_df, model_score, model_cm, model_feature, dt
+
+
+# X, y holdout, train, test split
+def df_split(df, balancing='None', holdout_ratio=0.3,
+             sampling_random_state=1, holdout_random_state=1,
+             split_random_state=1, split_ratio=0.25):
+    """Generate X_train, X_test, X_holdout, y_train, y_test, y_holdout for machine learning
+    :param df: DataFrame that has been engineered, imputed, and scaled
+    :param balancing: string, 'None', 'Over', 'Under'
+    :param holdout_ratio: float
+    :param sampling_random_state: integer
+    :param holdout_random_state: integer
+    :param split_random_state: integer
+    :param split_ratio: float
+    :return: Split dataframe ready to be trained, tested
+
+    --------------------------------------------------------
+    Examples:
+    X_train, X_test, X_holdout, y_train, y_test, y_holdout = df_split(df=df)
+    """
+
+    # Holdout for final model test
+    holdout_df_withtarget1 = df[df.y == 1].sample(frac=holdout_ratio, replace=False, random_state=holdout_random_state)
+    holdout_df_withtarget0 = df[df.y == 0].sample(frac=holdout_ratio, replace=False, random_state=holdout_random_state)
+    holdout_df = pd.concat([holdout_df_withtarget0, holdout_df_withtarget1])
+    X_holdout = holdout_df.drop('y', 1)
+    y_holdout = holdout_df['y']
+
+    # Model will be tuned using the rest samples
+    df_rest = pd.concat(
+        [df, holdout_df_withtarget1, holdout_df_withtarget0]
+    ).drop_duplicates(keep=False)
+
+    X = df_rest.drop("y", 1)
+    y = df_rest.y
+
+    # Begin split
+    if balancing == 'None':
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=split_ratio, stratify=y, random_state=split_random_state
+        )
+    elif balancing == 'Under':
+        undersampler = RandomUnderSampler(sampling_strategy="majority", random_state=sampling_random_state)
+        X_under, y_under = undersampler.fit_resample(X, y)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_under, y_under, test_size=split_ratio, stratify=y_under, random_state=split_random_state
+        )
+    elif balancing == 'Over':
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=split_ratio, stratify=y, random_state=split_random_state
+        )
+        oversampler = RandomOverSampler(sampling_strategy='minority', random_state=sampling_random_state)
+        X_train, y_train = oversampler.fit_resample(X_train, y_train)
+        X_test, y_test = oversampler.fit_resample(X_test, y_test)
+
+    else:
+        print("Wrong input of 'balancing', please see docstring")
+        return
+
+    return X_train, X_test, X_holdout, y_train, y_test, y_holdout
