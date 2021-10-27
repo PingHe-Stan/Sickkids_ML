@@ -1,9 +1,5 @@
 __author__ = 'Stan He@Sickkids.ca'
-__date__ = '2021-10-21'
-
-from typing import Union, Any
-
-from pandas import Series
+__date__ = ['2021-10-21', '2021-10-26']
 
 """Gadgets for various tasks 
 """
@@ -28,7 +24,6 @@ from utils import (ApgarTransformer,
 # Imbalance dataset
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import RandomOverSampler
-
 
 # ML Libraries
 from sklearn.preprocessing import MinMaxScaler
@@ -821,7 +816,7 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
     return score_df, model_score, model_cm, model_feature, dt
 
 
-# X, y holdout, train, test split
+# Given df, X, y holdout, train, test split will be gained
 def df_split(df, balancing='None', holdout_ratio=0.3,
              sampling_random_state=1, holdout_random_state=1,
              split_random_state=1, split_ratio=0.25):
@@ -879,3 +874,15 @@ def df_split(df, balancing='None', holdout_ratio=0.3,
         return
 
     return X_train, X_test, X_holdout, y_train, y_test, y_holdout
+
+
+# Simplified uni-variate imputation method with basic common sense
+def df_simple_imputer(df):
+    """ A new df will be returned with NaN filled with median value for each column
+    :param df: Dataframe to be imputed
+    :return: df Dataframe that has been imputed
+    """
+    df_new = pd.DataFrame()
+    for col in df.columns[~df.columns.str.contains("^y$")]:
+        df_new[col] = df[col].fillna(df[col].median())
+    return df_new
