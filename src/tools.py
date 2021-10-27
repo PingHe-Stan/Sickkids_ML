@@ -109,6 +109,7 @@ def load_child_with_more(
 # Define your dataset based on target variable, which cannot be controlled in ML pipeline
 def target_selector(df, target_name="Asthma_Diagnosis_5yCLA", target_mapping={2: 1}, include_dust=False):
     """Define your target variable, the mapping schemes, and whether to include dust sampling data for modelling.
+    Can only be used when it's the raw data with inclusive/complete feature columns
 
     Parameters:
     -----------------
@@ -1053,9 +1054,9 @@ def df_ml_run(
 
 
 # Given df, X, y holdout, train, test split will be gained
-def df_split(df, balancing='None', holdout_ratio=0.3,
-             sampling_random_state=1, holdout_random_state=1,
-             split_random_state=1, split_ratio=0.25):
+def df_split(df, balancing='None', holdout_ratio=0.25,
+             sampling_random_state=2, holdout_random_state=1,
+             split_random_state=2, split_ratio=0.2):
     """Generate X_train, X_test, X_holdout, y_train, y_test, y_holdout for machine learning
     :param df: DataFrame that has been engineered, imputed, and scaled
     :param balancing: string, 'None', 'Over', 'Under'
@@ -1112,8 +1113,8 @@ def df_split(df, balancing='None', holdout_ratio=0.3,
     return X_train, X_test, X_holdout, y_train, y_test, y_holdout
 
 
-# Simplified uni-variate imputation method with basic common sense
-def df_simple_imputer(df):
+# Simplified uni-variate imputation method with basic common sense and minmaxscaler for easy operation
+def df_simpleimputer_scaled(df):
     """ A new df will be returned with NaN filled with median value for each column
     :param df: Dataframe to be imputed
     :return: df Dataframe that has been imputed
@@ -1121,4 +1122,8 @@ def df_simple_imputer(df):
     df_new = pd.DataFrame()
     for col in df.columns[~df.columns.str.contains("^y$")]:
         df_new[col] = df[col].fillna(df[col].median())
+    df_new = pd.DataFrame(
+        MinMaxScaler().fit_transform(df_new), columns=df_new.columns, index=df_new.index,
+    )
+    df_new = pd.concat([df_new, df["y"]], axis=1)
     return df_new

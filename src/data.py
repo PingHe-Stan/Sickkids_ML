@@ -85,6 +85,10 @@ def data_selection(data_path='../data/'):
     features_of_parental_asthma[0] = data_path + 'Parental history Asthma.xlsx'
     features_of_parental_asthma.append('Genetic')
 
+    features_of_parental_asthma = [0]
+    features_of_parental_asthma[0] = data_path + 'Parental history of allergies.xlsx'
+    features_of_parental_asthma.append('Genetic')
+
     # Environmental
     features_of_breastfeeding = [0]
     features_of_breastfeeding[0] = data_path + 'Breastfeeding variables.xlsx'
@@ -362,7 +366,7 @@ def feature_selection(data_path='../data/'):
         rename_dict = features_dataframe.Features[i]
         df_list.append(df_current[coln].rename(columns=rename_dict))
 
-    # Create a merged dataframe for furthur engineering
+    # Create a merged dataframe for further engineering
     df_merged = reduce(lambda left, right: pd.merge(left, right, on=['Subject_Number'],
                                                     how='left'), df_list)
 
