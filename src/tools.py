@@ -427,8 +427,7 @@ def randomsubset_permutation_importance(*, X=None, y=None, clf: object, percenti
             )
 
 
-# Run various ML models and return confusion matrix dataframe,  model performance dataframe
-# and colored feature importance dataframe
+# Sample run various ML models and return a series of dictionary for viewing information
 def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_scoring='f1'):
     """
     Current model cohorts include:
@@ -453,6 +452,10 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
         since it must be recognizable as a parameter to be put into permutation importance
 
     :return: Confusion matrix dataframe, model performance, feature importance
+
+    ------------------------
+    Examples:
+    ml_tuple = ml_run(X_train, X_test, y_train, y_test)
     """
     # A dictionary that will store the performance score of models to evaluate feature importance
     model_score = {}
@@ -814,6 +817,239 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
     score_df = pd.DataFrame(score_dict).set_index("Model")
 
     return score_df, model_score, model_cm, model_feature, dt
+
+
+# An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
+def df_ml_run(
+    X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_scoring="f1"
+):
+    """
+    Fast run of a myriad of models and return three very informative dataframes (confusion matrix dataframe,  model performance dataframe
+    and colored feature importance dataframe) and one decision tree for visualization
+
+    :param scoring_func: a predefined function, default: f1_score
+        model_scoring has to be one of accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+        since it must have the same name of sklearn.metrics functions
+
+    :param importance_scoring: string, default: f1
+        importance_scoring has to be one of 'accuracy', 'f1', 'precision', 'recall', 'roc_auc',
+        since it must be recognizable as a parameter to be put into permutation importance
+
+    :return: Confusion matrix dataframe, model performance, feature importance
+
+    ------------------------
+    Examples:
+    ml_result_tuple = df_ml_run(X_train, X_test, y_train, y_test)
+    """
+    # A dictionary that will store the performance score of models to evaluate feature importance
+    model_score = {}
+
+    # A dictionary that will store the confusion matrix results as string to easy comparision
+    model_cm = {}
+
+    # A dictionary that will store the feature importance for different models
+    model_feature = {}
+
+    # Initializing the model using desired abbreviated names as model instance to train and test
+    xgb = XGBClassifier(learning_rate=0.01, n_estimators=25)
+    dt = DecisionTreeClassifier(criterion="entropy", random_state=0, max_depth=6)
+    rf = RandomForestClassifier(n_estimators=20, random_state=12, max_depth=5)
+    knn = KNeighborsClassifier(n_neighbors=12)
+    svc = SVC(kernel="rbf", C=6)
+    nb = GaussianNB()
+    lr = LogisticRegression()
+
+    # A dictionary that stores the full name of model
+    model_name = {
+        "knn": "K_Nearest_Neigbhors",
+        "xgb": "eXtreme_Gradient_Boost",
+        "svc": "Support_Vector_Machine",
+        "dt": "Decision_Tree",
+        "rf": "Random_Forest",
+        "nb": "Naive_Bayes",
+        "lr": "Logistic_Regression",
+    }
+
+    permutation_importance_list = [(knn, "knn"), (svc, "svc"), (nb, "nb")]
+    feature_importance_list = [(dt, "dt"), (rf, "rf"), (xgb, "xgb")]
+    coefficient_list = [(lr, "lr")]
+
+    model_list = (
+        permutation_importance_list + feature_importance_list + coefficient_list
+    )
+
+    # 1. Search for most effective predictive models and relevant feature importance
+    for model, key in model_list:
+
+        # Train and predict
+        model.fit(X_train, y_train)
+        predicted = model.predict(X_test)
+
+        # Store result
+        model_score[key] = scoring_func(y_test, predicted)
+        model_cm[key] = str(
+            {
+                k: dict(v)
+                for k, v in dict(
+                    pd.DataFrame(
+                        confusion_matrix(y_test, predicted),
+                        columns=["Pr0", "Pr1"],
+                        index=["Tr0", "Tr1"],
+                    )
+                ).items()
+            }
+        )
+        # Display model result
+        print(f"confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+        print(
+            f"The performance score of {model_name[key]}: {model_score[key] * 100} \n"
+        )
+        print(classification_report(y_test, predicted))
+
+        # Permutation importance
+        if (model, key) in permutation_importance_list:
+
+            # Evaluating Feature importance
+            permutation_result = permutation_importance(
+                model,
+                X_train,
+                y_train,
+                n_repeats=10,
+                random_state=1012,
+                scoring=importance_scoring,
+            )
+
+            # Storing feature importance
+            model_feature[key] = permutation_result.importances_mean.reshape(1, -1)[0]
+
+            # Visualization of feature importance for permutation importance
+            perm_sorted_idx = permutation_result.importances_mean.argsort()
+            plt.figure(figsize=(20, 10))
+            plt.title("Feature Importance for {}".format(model_name[key]))
+            plt.barh(
+                width=permutation_result.importances_mean[perm_sorted_idx].T,
+                y=X_train.columns[perm_sorted_idx],
+            )
+        # Feature Importance for tree-based models:
+        elif (model, key) in feature_importance_list:
+
+            # Storing feature importance
+            model_feature[key] = model.feature_importances_.reshape(1, -1)[0]
+
+            # Plot visualization of feature importance for tree-based models
+            imp_features = pd.DataFrame(
+                data=model.feature_importances_,
+                index=X_test.columns,
+                columns=[model_name[key]],
+            )
+            imp_features.sort_values(model_name[key], ascending=False, inplace=True)
+            plt.figure(figsize=(12, 8), dpi=200)
+            sns.barplot(
+                data=imp_features,
+                y=imp_features.index,
+                x=imp_features[model_name[key]],
+            )
+
+        # Feature importance for linear-based models:
+        elif (model, key) in coefficient_list:
+
+            # Storing feature importance
+            model_feature[key] = model.coef_.reshape(1, -1)[0]
+
+            # Plot visualization of feature importance for linear models
+            imp_features = pd.DataFrame(
+                data=model.coef_.reshape(1, -1)[0],
+                index=X_test.columns,
+                columns=[model_name[key]],
+            )
+            imp_features.sort_values(model_name[key], ascending=False, inplace=True)
+            plt.figure(figsize=(12, 8), dpi=200)
+            sns.barplot(
+                data=imp_features,
+                y=imp_features.index,
+                x=imp_features[model_name[key]],
+            )
+        else:
+            print(
+                "{} is not found in the model_list, please check".format((model, key))
+            )
+
+    # 2. Put all metrics together for different models
+    score_dict = defaultdict(list)
+    models = [lr, nb, rf, knn, dt, svc, xgb]
+    models_label = [
+        "Logistic Regression",
+        "Naive Bayes",
+        "Random Forest",
+        "K-Nearest Neighbours",
+        "Decision Tree",
+        "Support Vector Machine",
+        "Extreme Gradient Boost",
+    ]
+    measurements = [
+        accuracy_score,
+        f1_score,
+        precision_score,
+        recall_score,
+        roc_auc_score,
+    ]
+    measurement_names = ["Accuracy", "F1 score", "Precision", "Recall", "AUC"]
+    for i in range(len(models)):
+        score_dict["Model"].append(models_label[i])
+        for j in range(len(measurements)):
+            score_dict[measurement_names[j]].append(
+                measurements[j](y_test, models[i].predict(X_test))
+            )
+    score_df = pd.DataFrame(score_dict).set_index("Model")
+
+    model_score_returned = score_df.style.background_gradient(cmap="Greens")
+
+    # 3. Create feature importance table for various predictors
+
+    # Prepare naming of models
+    col_name = []
+    for i in model_feature.keys():
+        col_name.append(model_name[i])
+
+    # Convert feature importances dictionary into dataframe, and tranpose to view feature importance on rows
+    feature_res = pd.DataFrame(
+        data=model_feature.values(), columns=X_test.columns, index=model_feature.keys()
+    ).T
+
+    # Standardize the columns while retaining signs of coefficients using dividing maximal value
+    for col in feature_res.columns:
+        feature_res[col] = feature_res[col] / feature_res[col].max()
+
+    # Calculate weighted feature importance using a myriad of models based on their performance
+    weighted_feature = sum(
+        [feature_res[col].values * score for col, score in list(model_score.items())]
+    )
+
+    # Standardize the weighted_importance column
+    feature_res["Weighted_Importance"] = weighted_feature / np.max(weighted_feature)
+    col_name.append("Weighted_Importance")
+
+    # Renaming the columns to the model's full name
+    feature_res.columns = col_name
+    feature_res_returned = feature_res.style.background_gradient(cmap="Greens")
+
+    # 4. View the confusion matrix for details
+    model_cm_df = pd.DataFrame(model_cm, index=["Confusion_Matrix_Summary"]).T
+
+    # Add two more columns for easy observation
+    model_cm_df["Pred_0"] = model_cm_df.Confusion_Matrix_Summary.apply(
+        lambda x: eval(x)["Pr0"]
+    )
+    model_cm_df["Pred_1"] = model_cm_df.Confusion_Matrix_Summary.apply(
+        lambda x: eval(x)["Pr1"]
+    )
+
+    index_name = []
+    for i in model_cm_df.index:
+        index_name.append(model_name[i])
+    model_cm_df.index = index_name
+
+    return model_score_returned, feature_res_returned, model_cm_df, dt
 
 
 # Given df, X, y holdout, train, test split will be gained
