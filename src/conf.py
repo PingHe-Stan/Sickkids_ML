@@ -18,6 +18,33 @@ CHILD_WHEEZEPHENOTYPE_PATH = ADDON_DIR + "wheeze phenotypes.xlsx"
 CHILD_ETHNICITY_PATH = ADDON_DIR + "Prenatal Q91PRNMH18WK.xlsx"
 
 # Variables category
+
+FEATURE_SELECTED_BASELINE = [
+    "Gender",
+    "Mode_of_delivery",
+    "Anesthetic_delivery",
+    "Prolonged_Expiration_1yCLA",
+    "Crackles_1yCLA",
+    "Wheeze_1yCLA",
+    "Mother_Asthma",
+    "Father_Asthma",
+    "Parental_Asthma",
+    "Mom_Atopy",
+    "Wheeze_Mother",
+    "Hayfever_Mother",
+    "Pollentress_Mother",
+    "FAllergies_Mother",
+    "Wheeze_Father",
+    "Hayfever_Father",
+    "AD_Father",
+    "Pollentress_Father",
+    "Number_of_AntibioticsCourse",
+    "Antibiotics_Usage",
+    "Gest_Days",
+    "Apgar_Score_5min",
+    "y",
+]
+
 # Categorical Features
 SUB_CAT_MUST = [
     "Antibiotics_Usage",
@@ -92,7 +119,7 @@ SUB_CAT_OHE = [
 ]
 SUB_CAT_ENGI = [
     "Mode_of_delivery",
-    "Mother_Condition_Delivery",
+    "Prenatal_Mother_Condition",
     "First_10min_Measure",
 ]
 SUB_CAT_RESP = [
@@ -208,31 +235,7 @@ FEA_OF_UNUSEDWHEEZE = list({"Wheeze_3m", "Noncold_Wheeze_3m", "Epi_Noncold_Wheez
 FEA_TO_DROP = FEA_OF_TOPIC + FEA_OF_INTEREST + FEA_OF_UNUSEDWHEEZE + FEA_OF_LITTLE
 
 
-FEATURE_SELECTED_BASELINE = [
-    "Gender",
-    "Mode_of_delivery",
-    "Anesthetic_delivery",
-    "Prolonged_Expiration_1yCLA",
-    "Crackles_1yCLA",
-    "Wheeze_1yCLA",
-    "Mother_Asthma",
-    "Father_Asthma",
-    "Parental_Asthma",
-    "Mom_Atopy",
-    "Wheeze_Mother",
-    "Hayfever_Mother",
-    "Pollentress_Mother",
-    "FAllergies_Mother",
-    "Wheeze_Father",
-    "Hayfever_Father",
-    "AD_Father",
-    "Pollentress_Father",
-    "Number_of_AntibioticsCourse",
-    "Antibiotics_Usage",
-    "Gest_Days",
-    "Apgar_Score_5min",
-    "Asthma_Diagnosis_5yCLA",
-]
+
 
 
 

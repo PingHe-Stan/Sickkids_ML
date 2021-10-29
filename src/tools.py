@@ -1,5 +1,5 @@
 __author__ = 'Stan He@Sickkids.ca'
-__date__ = ['2021-10-21', '2021-10-26']
+__date__ = ['2021-10-21', '2021-10-26', '2021-10-29']
 
 """Gadgets for various tasks 
 """
@@ -106,10 +106,185 @@ def load_child_with_more(
     return df_child
 
 
-# Define your dataset based on target variable, which cannot be controlled in ML pipeline
-def target_selector(df, target_name="Asthma_Diagnosis_5yCLA", target_mapping={2: 1}, include_dust=False):
-    """Define your target variable, the mapping schemes, and whether to include dust sampling data for modelling.
-    Can only be used when it's the raw data with inclusive/complete feature columns
+def grouped_feature_generator(df):
+    """
+    Automaticly generate subset of variables to facilitate the feature selection, feature imputation, as well as time-point longitudinal ML analysis process.
+    :param df Dataframe to be operated on
+    :return: two dictionaries containing groupped features, and features at different time points
+    """
+
+    # To facilitate the selections of features as well as the multivariate imputation for grouped features to build models
+    feature_grouped_dict = {}
+
+    feature_grouped_mapping = {
+        "1_weight": "^Weight_",
+        "2_mother_condition": "^Prenatal_",
+        "3_first10min": "10min_",
+        "4_breastfeeding": "^BF_",
+        "5_home": "^Home",
+        "6_mental": "^PSS_|^CSED_",
+        "7_parental": "Mother|Father|Dad|Mom|Parental",
+        "8_smoke": "Smoke",
+        "9_wheeze": "Wheeze",
+        "10_resp": "Respiratory|RI",
+        "11_antibiotic": "Antibiotic",
+    }
+
+    for k, v in feature_grouped_mapping.items():
+        feature_grouped_dict[k] = set(df.columns[df.columns.str.contains(v)])
+
+    feature_grouped_dict["1_11"] = set()
+    for i in feature_grouped_dict.values():
+        feature_grouped_dict["1_11"].update(i)
+
+    feature_grouped_dict["12_misc"] = (
+        set(df.columns)
+        - feature_grouped_dict["1_11"]
+        - set(df.columns[df.columns.str.contains("yCLA")])
+        - {"y"}
+    )
+
+    temp_current = set()
+    for i in feature_grouped_dict.values():
+        temp_current.update(i)
+
+    feature_grouped_dict["13_remainder"] = set(df.columns) - temp_current
+
+    # To facilitate the incorporation of features at different time points to build models
+    feature_timepoint_dict = {}
+
+    feature_timepoint_mapping = {
+        "3m": "3m",
+        "6m": "6m",
+        "12m": "12m|1y",
+        "18m": "18m|BF_implied",
+        "24m": "24m|2y",
+        "36m": "36m|3y",
+        "48m": "48m|4y",
+        "60m": "60m|5y",
+        "1_9m_2hy": "1m$|9m|2hy",
+    }
+
+    for k, v in feature_timepoint_mapping.items():
+        feature_timepoint_dict[k] = set(df.columns[df.columns.str.contains(v)])
+
+    feature_timepoint_dict["after_birth"] = set()
+
+    for i in feature_timepoint_dict.values():
+        feature_timepoint_dict["after_birth"].update(i)
+
+    feature_timepoint_dict["at_birth"] = (
+        set(df.columns) - feature_timepoint_dict["after_birth"] - {"y"}
+    )
+
+    target_repo = {
+        "Asthma_Diagnosis_3yCLA",
+        "Asthma_Diagnosis_5yCLA",
+        "Recurrent_Wheeze_1y",  # Self-report Wheeze at earliest time point
+        "Recurrent_Wheeze_3y",
+        "Recurrent_Wheeze_5y",
+        "Wheeze_Traj_Type",  # Derived by Vera Dai, Less NaN Value, 2+4 could be useful
+        "Medicine_for_Wheeze_5yCLA",  # More objective
+        "Viral_Asthma_3yCLA",  # No need to decide "possible" category
+        "Triggered_Asthma_3yCLA",
+        "Viral_Asthma_5yCLA",  # No need to decide "possible" category
+        "Triggered_Asthma_5yCLA",
+    }
+
+    print("------------------------------------------------------")
+    print(
+        "The available grouped feature can be one of: \n", feature_grouped_dict.keys()
+    )
+    print("------------------------------------------------------")
+    print(
+        "The available time-points for features can be one of: \n",
+        feature_timepoint_dict.keys(),
+    )
+    print("------------------------------------------------------")
+    print("Note: Target variable can be one of: \n", target_repo)
+    print("------------------------------------------------------")
+
+    return feature_grouped_dict, feature_timepoint_dict
+
+
+# # Define your dataset based on target variable, which cannot be controlled in ML pipeline
+# def target_selector(df, target_name="Asthma_Diagnosis_5yCLA", target_mapping={2: 1}, include_dust=False):
+#     """Define your target variable, the mapping schemes, and whether to include dust sampling data for modelling.
+#     Can only be used when it's the raw data with inclusive/complete feature columns
+#
+#     Parameters:
+#     -----------------
+#     df: DataFrame to choose target from
+#
+#     target_name : str,  default 'Asthma_Diagnosis_5yCLA'
+#         A string that is selected from TARGET_VAR_REPO list to control the entire dataframe to be processed
+#
+#     target_mapping : dictionary, default {2:1} that is suggesting possible asthma(2) will be treated as asthma(0)
+#         A dictionary used to specify how to map the "possible", or, or other variables
+#
+#     include_dust : boolean, default is False
+#         A boolean for certain attribute selection that will drastically reduce sample size for analysis
+#
+#     Returns:
+#     ----------------
+#     Targeted df, in which target will be renamed to 'y'
+#     """
+#
+#     # df_child variables sanity check
+#     print(f"The dimension of original dataframe for process is {df.shape}")
+#     print("Number of categorical features is: ", len(CAT_VARS_REPO))
+#     print("Number of numeric features is: ", len(NUM_VARS_REPO))
+#     print("Number of target variables is: ", len(TARGET_VAR_REPO))
+#     print("Number of dropped features is: ", len(FEA_TO_DROP))
+#     print("The difference of features of targeted and original dataframe is :{0}".format((set(df.columns.values) - set(
+#         TARGET_VAR_REPO + NUM_VARS_REPO + CAT_VARS_REPO + FEA_TO_DROP))))
+#     print(f"The number of missing value for target label is: {df[target_name].isna().sum()}")
+#
+#     # Print selectable target variables
+#     print("------------------------------------------------------")
+#     print("Note: Target variable can be one of: \n", TARGET_VAR_REPO)
+#     print("------------------------------------------------------")
+#     print("****Target variable will be renamed to y for easy access.**** \n")
+#
+#     y = df[target_name].copy().replace(target_mapping)
+#
+#     if include_dust:
+#         X = df[NUM_VARS_REPO + CAT_VARS_REPO + ["Subject_Number"]].copy()
+#         df_temp = pd.concat([X, y], axis=1)
+#
+#         df_Xy = df_temp.dropna(subset=SUB_NUM_HOMEDUST + [target_name]).reset_index(
+#             drop=True
+#         )
+#
+#         df_Xy.set_index(
+#             "Subject_Number", inplace=True
+#         )  # Use Index as an extra information
+#
+#         X_return = df_Xy.drop(columns=[target_name])
+#         y_return = df_Xy[target_name]
+#
+#         return df_Xy.rename(columns={target_name: "y"}), X_return, y_return
+#
+#     else:
+#         X = (
+#             df[NUM_VARS_REPO + CAT_VARS_REPO + ["Subject_Number"]]
+#                 .copy()
+#                 .drop(columns=SUB_NUM_HOMEDUST)
+#         )
+#         df_temp = pd.concat([X, y], axis=1)
+#
+#         df_Xy = df_temp.dropna(subset=[target_name]).reset_index(drop=True)
+#
+#         df_Xy.set_index(
+#             "Subject_Number", inplace=True
+#         )  # Use Index as an extra information
+#
+#         return df_Xy.rename(columns={target_name: "y"})
+
+
+# Define a new target selector
+def df_target_selector(df, target_name="Asthma_Diagnosis_5yCLA", target_mapping={2: np.nan}):
+    """Define your target variable, the mapping schemes.
 
     Parameters:
     -----------------
@@ -121,64 +296,26 @@ def target_selector(df, target_name="Asthma_Diagnosis_5yCLA", target_mapping={2:
     target_mapping : dictionary, default {2:1} that is suggesting possible asthma(2) will be treated as asthma(0)
         A dictionary used to specify how to map the "possible", or, or other variables
 
-    include_dust : boolean, default is False
-        A boolean for certain attribute selection that will drastically reduce sample size for analysis
-
     Returns:
     ----------------
-    Targeted df, in which target will be renamed to 'y'
+    Targeted df, in which target variable will be renamed to 'y'
     """
 
     # df_child variables sanity check
     print(f"The dimension of original dataframe for process is {df.shape}")
-    print("Number of categorical features is: ", len(CAT_VARS_REPO))
-    print("Number of numeric features is: ", len(NUM_VARS_REPO))
-    print("Number of target variables is: ", len(TARGET_VAR_REPO))
-    print("Number of dropped features is: ", len(FEA_TO_DROP))
-    print("The difference of features of targeted and original dataframe is :{0}".format((set(df.columns.values) - set(
-        TARGET_VAR_REPO + NUM_VARS_REPO + CAT_VARS_REPO + FEA_TO_DROP))))
     print(f"The number of missing value for target label is: {df[target_name].isna().sum()}")
 
     # Print selectable target variables
-    print("------------------------------------------------------")
-    print("Note: Target variable can be one of: \n", TARGET_VAR_REPO)
-    print("------------------------------------------------------")
-    print("****Target variable will be renamed to y for easy access.**** \n")
+    print("****Target variable will be renamed to y for easy access.**** ")
 
-    y = df[target_name].copy().replace(target_mapping)
+    df[target_name] = df[target_name].replace(target_mapping)
 
-    if include_dust:
-        X = df[NUM_VARS_REPO + CAT_VARS_REPO + ["Subject_Number"]].copy()
-        df_temp = pd.concat([X, y], axis=1)
+    df_Xy = df[df[target_name].notna()].rename(columns={target_name: "y"})
 
-        df_Xy = df_temp.dropna(subset=SUB_NUM_HOMEDUST + [target_name]).reset_index(
-            drop=True
-        )
+    if "Subject_Number" in df_Xy.columns:
+        df_Xy.set_index("Subject_Number", inplace=True)
 
-        df_Xy.set_index(
-            "Subject_Number", inplace=True
-        )  # Use Index as an extra information
-
-        X_return = df_Xy.drop(columns=[target_name])
-        y_return = df_Xy[target_name]
-
-        return df_Xy.rename(columns={target_name: "y"}), X_return, y_return
-
-    else:
-        X = (
-            df[NUM_VARS_REPO + CAT_VARS_REPO + ["Subject_Number"]]
-                .copy()
-                .drop(columns=SUB_NUM_HOMEDUST)
-        )
-        df_temp = pd.concat([X, y], axis=1)
-
-        df_Xy = df_temp.dropna(subset=[target_name]).reset_index(drop=True)
-
-        df_Xy.set_index(
-            "Subject_Number", inplace=True
-        )  # Use Index as an extra information
-
-        return df_Xy.rename(columns={target_name: "y"})
+    return df_Xy
 
 
 # Select a subset of samples with allowable missingness for further imputation and modelling
@@ -1055,8 +1192,8 @@ def df_ml_run(
 
 # Given df, X, y holdout, train, test split will be gained
 def df_split(df, balancing='None', holdout_ratio=0.25,
-             sampling_random_state=2, holdout_random_state=1,
-             split_random_state=2, split_ratio=0.2):
+             sampling_random_state=1, holdout_random_state=1,
+             split_random_state=1, split_ratio=0.2):
     """Generate X_train, X_test, X_holdout, y_train, y_test, y_holdout for machine learning
     :param df: DataFrame that has been engineered, imputed, and scaled
     :param balancing: string, 'None', 'Over', 'Under'

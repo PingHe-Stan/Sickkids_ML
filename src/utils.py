@@ -71,7 +71,7 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
     Categorize Mode_of_delivery into Two or Original groups
     - 'Mode_of_delivery': - Binarized, or original categorical value
     Devise numeric feature to signal the severity of the pregnancy condition and birth situations
-    - 'Mother_Condition_Delivery': - Numeric, 0: 'Nausea','Bleeding', 'None', 1: Existing OR 0,1(of little consequences),2(of impact)
+    - 'Prenatal_Mother_Condition': - Numeric, 0: 'Nausea','Bleeding', 'None', 1: Existing OR 0,1(of little consequences),2(of impact)
     - 'First_10min_Measure': - Numeric, 0: 'None', 1: 'Suction, Oxyg, Ventilation', 2: 'Mask', 4:'Intubation' OR 2: Intubation, 1: Mask, 0: Others
 
     Parameters:
@@ -96,7 +96,7 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
     def __init__(
             self,
             bimode_delivery=True,
-            binary_pregnancy_conditions=False,
+            binary_pregnancy_conditions=True,
             signal_suction=True,
     ):
         super().__init__()
@@ -109,97 +109,100 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
 
     def transform(self, X, y=None):
 
-        if self.bimode_delivery:
-            X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(
-                {
-                    1.0: "Vaginal",
-                    2.0: "Vaginal",
-                    3.0: "Vaginal",
-                    4.0: "Vaginal",
-                    6.0: "Caesarean",
-                    7.0: "Caesarean",
-                    8.0: "Caesarean",
-                    9.0: "Caesarean",
-                    11.0: "Vaginal",
-                }
-            )
-        else:
-            X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(
-                {
-                    1.0: "Vaginal_Unassisted",
-                    2.0: "Vaginal_Assisted",
-                    3.0: "Vaginal_Vacuum_Extracted",
-                    4.0: "Vaginal_Breech",
-                    6.0: "Elective_Caesarean",
-                    7.0: "Caesarean_during_Labor",
-                    8.0: "Emergency_Caesarean_with_Labor",
-                    9.0: "Emergency_Caesarean_without_Labor",
-                    11.0: "Vaginal_with_Episiotomy",
-                }
-            )
+        if 'Mode_of_delivery' in X.columns:
+            if self.bimode_delivery:
+                X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(
+                    {
+                        1.0: "Vaginal",
+                        2.0: "Vaginal",
+                        3.0: "Vaginal",
+                        4.0: "Vaginal",
+                        6.0: "Caesarean",
+                        7.0: "Caesarean",
+                        8.0: "Caesarean",
+                        9.0: "Caesarean",
+                        11.0: "Vaginal",
+                    }
+                )
+            else:
+                X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(
+                    {
+                        1.0: "Vaginal_Unassisted",
+                        2.0: "Vaginal_Assisted",
+                        3.0: "Vaginal_Vacuum_Extracted",
+                        4.0: "Vaginal_Breech",
+                        6.0: "Elective_Caesarean",
+                        7.0: "Caesarean_during_Labor",
+                        8.0: "Emergency_Caesarean_with_Labor",
+                        9.0: "Emergency_Caesarean_without_Labor",
+                        11.0: "Vaginal_with_Episiotomy",
+                    }
+                )
 
-        if self.binary_pregnancy_conditions:
-            X["Mother_Condition_Delivery"] = X["Mother_Condition_Delivery"].replace(
-                {
-                    "Gestational Diabetes": 1,  # No. of "Gestational Diabetes": 107
-                    "Cardiac Disorder": 1,  # No. of Cardiac Disorder 9,
-                    "Other": 1,  # Total No. of other 699
-                    "Hypertension": 1,  # No. of all hypertension: 130
-                    "Hypotension": 1,  # No. = 5
-                    "Infections": 1,  # No. = 84
-                    "Bleeding": 0,  # No. = 174
-                    "Nausea": 0,  # No. = 551
-                    "None": 0,  # No. 1206
-                },
-                regex=True,
-                # Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
-            )
+        if "Prenatal_Mother_Condition" in X.columns:
+            if self.binary_pregnancy_conditions:
+                X["Prenatal_Mother_Condition"] = X["Prenatal_Mother_Condition"].replace(
+                    {
+                        "Gestational Diabetes": 1,  # No. of "Gestational Diabetes": 107
+                        "Cardiac Disorder": 1,  # No. of Cardiac Disorder 9,
+                        "Other": 1,  # Total No. of other 699
+                        "Hypertension": 1,  # No. of all hypertension: 130
+                        "Hypotension": 1,  # No. = 5
+                        "Infections": 1,  # No. = 84
+                        "Bleeding": 0,  # No. = 174
+                        "Nausea": 0,  # No. = 551
+                        "None": 0,  # No. 1206
+                    },
+                    regex=True,
+                    # Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
+                )
 
-        else:
-            X["Mother_Condition_Delivery"] = X["Mother_Condition_Delivery"].replace(
-                {
-                    "Gestational Diabetes": 2,  # No. of "Gestational Diabetes": 107
-                    "Cardiac Disorder": 2,  # No. of Cardiac Disorder 9,
-                    "Other": 1,  # Total No. of other 699
-                    "Hypertension": 1,  # No. of all hypertension: 130
-                    "Hypotension": 1,  # No. = 5
-                    "Infections": 1,  # No. = 84
-                    "Bleeding": 0,  # No. = 174
-                    "Nausea": 0,  # No. = 551
-                    "None": 0,  # No. 1206
-                },
-                regex=True,
-                # Note: Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
-            )
+            else:
+                X["Prenatal_Mother_Condition"] = X["Prenatal_Mother_Condition"].replace(
+                    {
+                        "Gestational Diabetes": 2,  # No. of "Gestational Diabetes": 107
+                        "Cardiac Disorder": 2,  # No. of Cardiac Disorder 9,
+                        "Other": 1,  # Total No. of other 699
+                        "Hypertension": 1,  # No. of all hypertension: 130
+                        "Hypotension": 1,  # No. = 5
+                        "Infections": 1,  # No. = 84
+                        "Bleeding": 0,  # No. = 174
+                        "Nausea": 0,  # No. = 551
+                        "None": 0,  # No. 1206
+                    },
+                    regex=True,
+                    # Note: Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
+                )
 
-        if self.signal_suction:
-            X["First_10min_Measure"] = X["First_10min_Measure"].replace(
-                {
-                    "Intubation": 4,  # No. of intubation is 39
-                    "Mask": 2,  # No. of Mask is 65
-                    "Positive Pressure Ventilation": 1,  # No. of Positive Ventilation 81
-                    "Free Flow Oxygen": 1,  # No. of Free Flow Oxygen 87
-                    "Perineum suction": 1,  # No. of Perineum suction 30
-                    "Suction": 0.5,  # No. of Suction 415
-                    "None": 0,
-                },
-                regex=True,
-                # Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
-            )
-        else:
-            X["First_10min_Measure"] = X["First_10min_Measure"].replace(
-                {
-                    "Intubation": 2,  # No. of intubation is 39
-                    "Mask": 1,  # No. of Mask is 65
-                    "Positive Pressure Ventilation": 0,  # No. of Positive Ventilation 81
-                    "Free Flow Oxygen": 0,  # No. of Free Flow Oxygen 87
-                    "Perineum suction": 0,  # No. of Perineum suction 30
-                    "Suction": 0,  # No. of Suction 415
-                    "None": 0,
-                },
-                regex=True,
-                # Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
-            )
+        if "First_10min_Measure" in X.columns:
+            if self.signal_suction:
+                X["First_10min_Measure"] = X["First_10min_Measure"].replace(
+                    {
+                        "Intubation": 4,  # No. of intubation is 39
+                        "Mask": 2,  # No. of Mask is 65
+                        "Positive Pressure Ventilation": 1,  # No. of Positive Ventilation 81
+                        "Free Flow Oxygen": 1,  # No. of Free Flow Oxygen 87
+                        "Perineum suction": 1,  # No. of Perineum suction 30
+                        "Suction": 0.5,  # No. of Suction 415
+                        "None": 0,
+                    },
+                    regex=True,
+                    # Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
+                )
+            else:
+                X["First_10min_Measure"] = X["First_10min_Measure"].replace(
+                    {
+                        "Intubation": 2,  # No. of intubation is 39
+                        "Mask": 1,  # No. of Mask is 65
+                        "Positive Pressure Ventilation": 0,  # No. of Positive Ventilation 81
+                        "Free Flow Oxygen": 0,  # No. of Free Flow Oxygen 87
+                        "Perineum suction": 0,  # No. of Perineum suction 30
+                        "Suction": 0,  # No. of Suction 415
+                        "None": 0,
+                    },
+                    regex=True,
+                    # Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
+                )
 
         return X
 

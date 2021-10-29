@@ -283,8 +283,8 @@ def feature_selection(data_path='../data/'):
                                'atbx_time': 'Time_of_AntibioticsUsage', 'atbx': 'Antibiotics_Usage'}
 
     features_of_smoke = data_path + 'Prenatal smoke exposure.xlsx'
-    variables_of_smoke = {'Subjectnumber': 'Subject_Number', 'prenatal_second_hand': 'Prenatal_Second_Hand',
-                          'prenatal_mat_smoke': 'Prenatal_Maternal_Smoke'}
+    variables_of_smoke = {'Subjectnumber': 'Subject_Number', 'prenatal_second_hand': 'Smoke_Prenatal_Secondhand',
+                          'prenatal_mat_smoke': 'Smoke_Prenatal_Maternal'}
 
     features_of_home = data_path + '6 Month Q165HENV6M.xlsx'  # Request for more home environmental questionnaires
     variables_of_home = {'SubjectNumber': 'Subject_Number', 'HENV6MQ8': 'Home_Furry_Pets_6m',
@@ -534,8 +534,8 @@ def dummy_reversed_features(feature_tuple=None):
                            'CBIRTHCDQ8k']].set_index('SubjectNumber')
 
     temp_2 = temp[temp == 1].stack().reset_index()
-    temp_2.columns = ['SubjectNumber', 'Mother_Condition_Delivery', 'Mother_Condition_number']
-    temp_2['Mother_Condition_Delivery'] = temp_2.Mother_Condition_Delivery.replace(
+    temp_2.columns = ['SubjectNumber', 'Prenatal_Mother_Condition', 'Mother_Condition_number']
+    temp_2['Prenatal_Mother_Condition'] = temp_2.Prenatal_Mother_Condition.replace(
         {'CBIRTHCDQ8a': 'Bleeding', 'CBIRTHCDQ8b': 'Nausea', 'CBIRTHCDQ8c': 'Infections',
          'CBIRTHCDQ8d': 'Pregnancy Induced Hypertension', 'CBIRTHCDQ8e': 'Gestational Diabetes',
          'CBIRTHCDQ8f': 'Cardiac Disorder', 'CBIRTHCDQ8g': 'Hypertension',
@@ -543,7 +543,7 @@ def dummy_reversed_features(feature_tuple=None):
          'CBIRTHCDQ8j': 'None', 'CBIRTHCDQ8k': 'Other'})
 
     mother_condition_birth = temp_2.groupby('SubjectNumber').agg(
-        {'Mother_Condition_Delivery': ','.join, 'Mother_Condition_number': sum}).reset_index()
+        {'Prenatal_Mother_Condition': ','.join, 'Mother_Condition_number': sum}).reset_index()
 
     # Create a feature for the adopted measures to restore baby's birth health situation of during first 10 minutes
 
@@ -568,7 +568,7 @@ def dummy_reversed_features(feature_tuple=None):
     df_added_features.rename(columns={'SubjectNumber': 'Subject_Number'}, inplace=True)
 
     # # Mother condition 0, 1 0 represent: No previous condition with only or no bleeding or nausea situations
-    # df_added_features['Mother_Condition_Encoded'] = df_added_features.Mother_Condition_Delivery.str.replace(
+    # df_added_features['Mother_Condition_Encoded'] = df_added_features.Prenatal_Mother_Condition.str.replace(
     #     r'(^.*None.*$)', '0') \
     #     .replace(['Nausea', 'Bleeding', 'Bleeding,Nausea'], '0') \
     #     .str.replace(r'(^.*Hypertension.*$)', '1').str.replace(r'(^.*Other.*$)', '1') \
