@@ -206,7 +206,6 @@ def grouped_feature_generator(df):
 
     return feature_grouped_dict, feature_timepoint_dict
 
-
 # # Define your dataset based on target variable, which cannot be controlled in ML pipeline
 # def target_selector(df, target_name="Asthma_Diagnosis_5yCLA", target_mapping={2: 1}, include_dust=False):
 #     """Define your target variable, the mapping schemes, and whether to include dust sampling data for modelling.
@@ -1193,8 +1192,9 @@ def df_ml_run(
 # Given df, X, y holdout, train, test split will be gained
 def df_split(df, balancing='None', holdout_ratio=0.25,
              sampling_random_state=1, holdout_random_state=1,
-             split_random_state=1, split_ratio=0.2):
+             split_random_state=1, split_ratio=0.2, remove_duplicates=False):
     """Generate X_train, X_test, X_holdout, y_train, y_test, y_holdout for machine learning
+    :param remove_duplicates: boolean
     :param df: DataFrame that has been engineered, imputed, and scaled
     :param balancing: string, 'None', 'Over', 'Under'
     :param holdout_ratio: float
@@ -1210,19 +1210,32 @@ def df_split(df, balancing='None', holdout_ratio=0.25,
     """
 
     # Holdout for final model test
-    holdout_df_withtarget1 = df[df.y == 1].sample(frac=holdout_ratio, replace=False, random_state=holdout_random_state)
-    holdout_df_withtarget0 = df[df.y == 0].sample(frac=holdout_ratio, replace=False, random_state=holdout_random_state)
-    holdout_df = pd.concat([holdout_df_withtarget0, holdout_df_withtarget1])
-    X_holdout = holdout_df.drop('y', 1)
-    y_holdout = holdout_df['y']
+    X_all = df.drop(columns = 'y')
+    y_all = df["y"]
 
-    # Model will be tuned using the rest samples
-    df_rest = pd.concat(
-        [df, holdout_df_withtarget1, holdout_df_withtarget0]
-    ).drop_duplicates(keep=False)
+    X, X_holdout, y, y_holdout  = train_test_split(
+        X_all, y_all, test_size=holdout_ratio, stratify=y_all, random_state=holdout_random_state
+    )
 
-    X = df_rest.drop("y", 1)
-    y = df_rest.y
+    df_holdout = pd.concat([X_holdout,y_holdout],axis=1)
+    df_rest = pd.concat([X,y],axis=1)
+
+    # If the features (which you have selected) become lesser, duplicates would appear given the same sample size
+    print("The number of repeated (redundant) samples in the holdout dataset given your selection of features for "
+          "modelling are", df_holdout.shape[0], "-", df_holdout.drop_duplicates().shape[0])
+
+    print("The number of repeated (redundant) samples in the train, test/eval dataset (rest) given your selection "
+          "of features for modelling are", df_rest.shape[0], "-", df_rest.drop_duplicates().shape[0])
+
+    print("You can drop duplicates with 'remove_duplicates=True' parameter")
+
+    if remove_duplicates:
+        df_holdout.drop_duplicates(inplace=True)
+        df_rest.drop_duplicates(inplace=True)
+        X_holdout = df_holdout.drop(columns='y')
+        y_holdout = df_holdout['y']
+        X = df_rest.drop(columns='y')
+        y = df_rest['y']
 
     # Begin split
     if balancing == 'None':

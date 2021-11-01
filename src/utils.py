@@ -1286,7 +1286,7 @@ class CollinearRemover(BaseEstimator, TransformerMixin):
 
         for i, col in enumerate(corr_X_df.columns):
             for i_name in corr_X_df[col].index[i + 1:]:
-                if corr_X_df[col][i_name] > 0.95:
+                if corr_X_df[col][i_name] > self.collinear_level:
                     self.repetition_drop.extend([i_name])
                     self.repetition_dict[" <> ".join([i_name, corr_X_df[col].name])] = corr_X_df[
                         col

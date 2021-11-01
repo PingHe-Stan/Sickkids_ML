@@ -288,7 +288,7 @@ def feature_selection(data_path='../data/'):
 
     features_of_home = data_path + '6 Month Q165HENV6M.xlsx'  # Request for more home environmental questionnaires
     variables_of_home = {'SubjectNumber': 'Subject_Number', 'HENV6MQ8': 'Home_Furry_Pets_6m',
-                         'HENV6MQ7': 'Home_New_Furnitures_6m', 'HENV6MQ18_4': 'Percentage_OutdoorsActivity_6m',
+                         'HENV6MQ7': 'Home_New_Furnitures_6m',
                          'HENV6MQ20': 'Home_Presence_Smoke_6m'}
 
     features_of_dust = data_path + 'Dust Pthalates 3m.xlsx'
