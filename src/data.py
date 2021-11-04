@@ -128,7 +128,7 @@ def data_selection(data_path='../data/'):
     # Recurrent Wheeze at 3y and 5y
     target_of_recwheeze = []
     target_of_recwheeze.append(data_path + 'Wheeze derived variables.xlsx')
-    target_of_recwheeze.append('Target of recurrent wheeze')
+    target_of_recwheeze.append('Target of curated wheeze')
 
     # Define dataset dataframe from different perspectives
     data_dict = dict()

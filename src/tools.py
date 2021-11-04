@@ -1,5 +1,5 @@
 __author__ = 'Stan He@Sickkids.ca'
-__date__ = ['2021-10-21', '2021-10-26', '2021-10-29']
+__date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01']
 
 """Gadgets for various tasks 
 """
@@ -204,7 +204,23 @@ def grouped_feature_generator(df):
     print("Note: Target variable can be one of: \n", target_repo)
     print("------------------------------------------------------")
 
-    return feature_grouped_dict, feature_timepoint_dict
+    feature_grouped_overview = pd.DataFrame(
+        [feature_grouped_dict.keys(), feature_grouped_dict.values()], index=["Type", "Features"]
+    ).T.set_index("Type").drop(index=["1_11"])
+
+    feature_grouped_overview.loc[-1] = str(target_repo)
+
+    feature_grouped_overview.rename(index={-1: "14_target"}, inplace=True)
+
+    time_variable_overview = (
+        pd.DataFrame(
+            [feature_timepoint_dict.keys(), feature_timepoint_dict.values()], index=["Time_Points", "Features"]
+        )
+            .T.set_index("Time_Points")
+            .drop(index=["1_9m_2hy"])
+    )
+
+    return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
 
 # # Define your dataset based on target variable, which cannot be controlled in ML pipeline
 # def target_selector(df, target_name="Asthma_Diagnosis_5yCLA", target_mapping={2: 1}, include_dust=False):
@@ -1277,3 +1293,18 @@ def df_simpleimputer_scaled(df):
     )
     df_new = pd.concat([df_new, df["y"]], axis=1)
     return df_new
+
+
+# TODO Perform statistical testing of all existing features using Chi-square and T-test for two populations (asthma, no asthma)
+def df_feature_testing(df):
+    """
+    :param df:
+    :return:
+    """
+    pass
+
+# TODO Perform alluvial analysis for target variables (visualization)
+def alluvial_analysis(column_list):
+    """"""
+    pass
+

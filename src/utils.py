@@ -933,21 +933,38 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
 
         # Based on pairwise correlation of columns,
         # KNN imputer for following subset of columns, the rest is more likely to be noise, rather than signal
-        BF_columns = set(X.columns[X.columns.str.contains("BF_")])
+        # BF_ was removed because there is only one feature that was not binary - Or Imputation could be done in
+        # TODO: Numeric Imputation Upgrade - Next Step
+        #  Three Stages: (1) binary variables imputation (2) grouped variables imputation
+        #  (3) Rest numeric imputation if any For now the BF_ will be removed as there is only one non-binary feature
+        # BF_columns = set(X.columns[X.columns.str.contains("BF_")])
         Weight_columns = set(X.columns[X.columns.str.contains("Weight_")]) | {
             "Gest_Days"
         }
-        Resp_columns = set(X.columns[X.columns.str.contains("Wheeze_|RI|Respiratory")])
+        # Remove binary imputation from previous Resp_columns
+        # Resp_columns = set(X.columns[X.columns.str.contains("Wheeze_|RI|Respiratory")])
+        Resp_columns = {
+            i
+            for i in set(
+            X.columns[
+                X.columns.str.contains("Wheeze_|RI|Respiratory")
+            ]
+        )
+            if X[i].nunique() >= 3
+        }
 
-        self.num_strategies["BF_columns"] = BF_columns
+        # self.num_strategies["BF_columns"] = BF_columns
         self.num_strategies["Weight_columns"] = Weight_columns
         self.num_strategies["Resp_columns"] = Resp_columns
 
         # 1.2 For Uni-Variate imputation
 
         # Simple for the rest columns with na values (Univariate)
+        # Ungrouped_columns = set(cols_with_na) - (
+        #     BF_columns | Weight_columns | Resp_columns
+        # )
         Ungrouped_columns = set(cols_with_na) - (
-            BF_columns | Weight_columns | Resp_columns
+         Weight_columns | Resp_columns
         )
         Uni_binary_columns_indicator = set()
         Uni_binary_columns_ignore = set()
@@ -989,8 +1006,8 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
         # Step 2: Begin fitting using different techniques
 
         # Multi-variate fit:
-        if len(self.num_strategies["BF_columns"]):
-            self.BF_imputer.fit(X[self.num_strategies["BF_columns"]])
+        # if len(self.num_strategies["BF_columns"]):
+        #     self.BF_imputer.fit(X[self.num_strategies["BF_columns"]])
         if len(self.num_strategies["Weight_columns"]):
             self.Weight_imputer.fit(X[self.num_strategies["Weight_columns"]])
         if len(self.num_strategies["Resp_columns"]):
@@ -1022,10 +1039,10 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
     def transform(self, X, y=None):
 
         # Multi-variate transform
-        if len(self.num_strategies["BF_columns"]):
-            X.loc[:, self.num_strategies["BF_columns"]] = self.BF_imputer.transform(
-                X[self.num_strategies["BF_columns"]]
-            )
+        # if len(self.num_strategies["BF_columns"]):
+        #     X.loc[:, self.num_strategies["BF_columns"]] = self.BF_imputer.transform(
+        #         X[self.num_strategies["BF_columns"]]
+        #     )
         if len(self.num_strategies["Weight_columns"]):
             X.loc[:, self.num_strategies["Weight_columns"]] = self.Weight_imputer.transform(
                 X[self.num_strategies["Weight_columns"]]
