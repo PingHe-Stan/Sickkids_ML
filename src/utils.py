@@ -17,6 +17,7 @@ from missingpy import MissForest  # For Imputation using Random Forest
 
 from conf import *  # Import Global Variables
 
+
 # Transformers - Apgar Score
 class ApgarTransformer(BaseEstimator, TransformerMixin):
     """
@@ -64,6 +65,7 @@ class ApgarTransformer(BaseEstimator, TransformerMixin):
                 )
                 print("Valid inputs include 'Ordinal','Log1p','None'")
         return X
+
 
 # Feature Engineering on features of Birth Profile
 class BirthTransformer(BaseEstimator, TransformerMixin):
@@ -221,7 +223,11 @@ class Log1pTransformer(BaseEstimator, TransformerMixin):
     Logified Numeric Values For Specified Columns
     """
 
-    def __init__(self, cols=SUB_NUM_LOG1P):
+    def __init__(self, cols=[
+        "No_of_Pregnancy",
+        "Stay_Duration_Hospital",
+        "BF_Implied_Duration",
+    ]):
         super().__init__()
         self.cols = cols
 
@@ -229,8 +235,9 @@ class Log1pTransformer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
-        for coln in self.cols:
-            X[coln] = np.log1p(X[coln])
+        if len(self.cols) != 0:
+            for coln in self.cols:
+                X[coln] = np.log1p(X[coln])
         return X
 
 
@@ -591,8 +598,8 @@ class DiscretizePSS(BaseEstimator, TransformerMixin):
 
     Parameters:
     ----------
-    discretize: boolean, default True.
-        If false, log1p will be applied.
+    discretize: string, default "Ordinal".
+        Other selections include: "Log1p", "None"
 
     pss_mapping: dict, defautl {'Low_Stress':13.5,'Moderate_Stress':26.5,'High_Stress':41}
         See ref: https://das.nh.gov/wellness/docs/percieved%20stress%20scale.pdf
@@ -607,7 +614,7 @@ class DiscretizePSS(BaseEstimator, TransformerMixin):
 
     def __init__(
             self,
-            discretize=True,
+            discretize="Ordinal",
             pss_mapping={"Low_Stress": 13.5, "Moderate_Stress": 26.5, "High_Stress": 41},
             csed_cutoff={"Low_Depression": 19.5, "High_Depression": 60},
     ):
@@ -620,7 +627,7 @@ class DiscretizePSS(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
-        if self.discretize:
+        if self.discretize == "Ordinal":
             for coln in X.columns[X.columns.str.contains("PSS_")]:
                 X[coln] = pd.cut(
                     X[coln],
@@ -643,7 +650,7 @@ class DiscretizePSS(BaseEstimator, TransformerMixin):
                     ],
                     labels=["Low_Depression", "High_Depression"],
                 )
-        else:
+        elif self.discretize == "Log1p":
             for coln in X.columns[X.columns.str.contains("PSS_|CSED_")]:
                 X[coln] = np.log1p(X[coln])
 
@@ -946,10 +953,10 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
         Resp_columns = {
             i
             for i in set(
-            X.columns[
-                X.columns.str.contains("Wheeze_|RI|Respiratory")
-            ]
-        )
+                X.columns[
+                    X.columns.str.contains("Wheeze_|RI|Respiratory")
+                ]
+            )
             if X[i].nunique() >= 3
         }
 
@@ -964,7 +971,7 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
         #     BF_columns | Weight_columns | Resp_columns
         # )
         Ungrouped_columns = set(cols_with_na) - (
-         Weight_columns | Resp_columns
+                Weight_columns | Resp_columns
         )
         Uni_binary_columns_indicator = set()
         Uni_binary_columns_ignore = set()
@@ -974,19 +981,19 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
         for col in Ungrouped_columns:
             # Only mode - can be biased when there is no indicator, however, curse of dimensionality is another concern
             if (self.num_strategies_df_.loc[col]["Num_Unique_Values"] == 2) & (
-                self.num_strategies_df_.loc[col]["Num_Missing_Values"]
-                < self.add_indicator_threshold
+                    self.num_strategies_df_.loc[col]["Num_Missing_Values"]
+                    < self.add_indicator_threshold
             ):
                 Uni_binary_columns_ignore.add(col)
             elif (self.num_strategies_df_.loc[col]["Num_Unique_Values"] == 2) & (
-                self.num_strategies_df_.loc[col]["Num_Missing_Values"]
-                >= self.add_indicator_threshold
+                    self.num_strategies_df_.loc[col]["Num_Missing_Values"]
+                    >= self.add_indicator_threshold
             ):
                 Uni_binary_columns_indicator.add(col)
             # Middle number will be accepted.
             elif (self.num_strategies_df_.loc[col]["Num_Unique_Values"] != 2) & (
-                self.num_strategies_df_.loc[col]["Num_Missing_Values"]
-                < self.add_indicator_threshold
+                    self.num_strategies_df_.loc[col]["Num_Missing_Values"]
+                    < self.add_indicator_threshold
             ):
                 Uni_nonbinary_columns_ignore_median.add(col)
             else:
@@ -1095,6 +1102,7 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
             )
 
         return X
+
 
 # Numeric Imputation strategies based on different numeric features (subset of KNN/RF needs to be added later on)
 # def numeric_imputation_selector(X, add_indicator_threshold=30):

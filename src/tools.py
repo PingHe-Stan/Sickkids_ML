@@ -1,5 +1,5 @@
 __author__ = 'Stan He@Sickkids.ca'
-__date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01']
+__date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01', '2021-11-08']
 
 """Gadgets for various tasks 
 """
@@ -9,6 +9,8 @@ import random
 import matplotlib.pyplot as plt
 import seaborn as sns
 from collections import defaultdict
+import pingouin as pg  # Perform statistical testing
+import plotly.graph_objects as go
 
 from conf import *  # Import Global Variables
 from utils import (ApgarTransformer,
@@ -31,12 +33,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     confusion_matrix,
     accuracy_score,
-    roc_curve,
+    #    roc_curve,
     classification_report,
     f1_score,
     precision_score,
     recall_score,
     roc_auc_score,
+    plot_confusion_matrix
 )
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
@@ -111,6 +114,9 @@ def grouped_feature_generator(df):
     Automaticly generate subset of variables to facilitate the feature selection, feature imputation, as well as time-point longitudinal ML analysis process.
     :param df Dataframe to be operated on
     :return: two dictionaries containing groupped features, and features at different time points
+
+    Example:
+    feature_dict, timepoint_dict, feature_grouped_overview, time_grouped_overview = grouped_feature_generator(df)
     """
 
     # To facilitate the selections of features as well as the multivariate imputation for grouped features to build models
@@ -138,10 +144,10 @@ def grouped_feature_generator(df):
         feature_grouped_dict["1_11"].update(i)
 
     feature_grouped_dict["12_misc"] = (
-        set(df.columns)
-        - feature_grouped_dict["1_11"]
-        - set(df.columns[df.columns.str.contains("yCLA")])
-        - {"y"}
+            set(df.columns)
+            - feature_grouped_dict["1_11"]
+            - set(df.columns[df.columns.str.contains("yCLA")])
+            - {"y"}
     )
 
     temp_current = set()
@@ -155,14 +161,14 @@ def grouped_feature_generator(df):
 
     feature_timepoint_mapping = {
         "3m": "3m",
-        "6m": "6m",
+        "6m": "_6m",
         "12m": "12m|1y",
         "18m": "18m|BF_implied",
         "24m": "24m|2y",
         "36m": "36m|3y",
         "48m": "48m|4y",
-        "60m": "60m|5y",
-        "1_9m_2hy": "1m$|9m|2hy",
+        "60m": "60m|5y|Traj_Type",
+        "1_9m_2hy": "1m$|9m|2hy"
     }
 
     for k, v in feature_timepoint_mapping.items():
@@ -174,7 +180,7 @@ def grouped_feature_generator(df):
         feature_timepoint_dict["after_birth"].update(i)
 
     feature_timepoint_dict["at_birth"] = (
-        set(df.columns) - feature_timepoint_dict["after_birth"] - {"y"}
+            set(df.columns) - feature_timepoint_dict["after_birth"] - {"y"}
     )
 
     target_repo = {
@@ -221,6 +227,7 @@ def grouped_feature_generator(df):
     )
 
     return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
+
 
 # # Define your dataset based on target variable, which cannot be controlled in ML pipeline
 # def target_selector(df, target_name="Asthma_Diagnosis_5yCLA", target_mapping={2: 1}, include_dust=False):
@@ -974,7 +981,7 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
 
 # An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
 def df_ml_run(
-    X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_scoring="f1"
+        X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_scoring="f1"
 ):
     """
     Fast run of a myriad of models and return three very informative dataframes (confusion matrix dataframe,  model performance dataframe
@@ -1004,10 +1011,10 @@ def df_ml_run(
     model_feature = {}
 
     # Initializing the model using desired abbreviated names as model instance to train and test
-    xgb = XGBClassifier(learning_rate=0.01, n_estimators=25)
+    xgb = XGBClassifier(learning_rate=0.01, n_estimators=250)
     dt = DecisionTreeClassifier(criterion="entropy", random_state=0, max_depth=6)
-    rf = RandomForestClassifier(n_estimators=20, random_state=12, max_depth=5)
-    knn = KNeighborsClassifier(n_neighbors=12)
+    rf = RandomForestClassifier(n_estimators=200, random_state=0, max_depth=5)
+    knn = KNeighborsClassifier(n_neighbors=5)
     svc = SVC(kernel="rbf", C=6)
     nb = GaussianNB()
     lr = LogisticRegression()
@@ -1028,7 +1035,7 @@ def df_ml_run(
     coefficient_list = [(lr, "lr")]
 
     model_list = (
-        permutation_importance_list + feature_importance_list + coefficient_list
+            permutation_importance_list + feature_importance_list + coefficient_list
     )
 
     # 1. Search for most effective predictive models and relevant feature importance
@@ -1044,16 +1051,17 @@ def df_ml_run(
             {
                 k: dict(v)
                 for k, v in dict(
-                    pd.DataFrame(
-                        confusion_matrix(y_test, predicted),
-                        columns=["Pr0", "Pr1"],
-                        index=["Tr0", "Tr1"],
-                    )
-                ).items()
+                pd.DataFrame(
+                    confusion_matrix(y_test, predicted),
+                    columns=["Pr0", "Pr1"],
+                    index=["Tr0", "Tr1"],
+                )
+            ).items()
             }
         )
         # Display model result
         print(f"confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+        plot_confusion_matrix(model, X_test, y_test)
         print(
             f"The performance score of {model_name[key]}: {model_score[key] * 100} \n"
         )
@@ -1155,8 +1163,8 @@ def df_ml_run(
             )
     score_df = pd.DataFrame(score_dict).set_index("Model")
 
-    model_score_returned = score_df.style.background_gradient(cmap="Greens")
-
+    #    model_score_returned = score_df.style.background_gradient(cmap="Greens")
+    model_score_returned = score_df
     # 3. Create feature importance table for various predictors
 
     # Prepare naming of models
@@ -1184,7 +1192,8 @@ def df_ml_run(
 
     # Renaming the columns to the model's full name
     feature_res.columns = col_name
-    feature_res_returned = feature_res.style.background_gradient(cmap="Greens")
+    #    feature_res_returned = feature_res.style.background_gradient(cmap="Greens")
+    feature_res_returned = feature_res
 
     # 4. View the confusion matrix for details
     model_cm_df = pd.DataFrame(model_cm, index=["Confusion_Matrix_Summary"]).T
@@ -1226,15 +1235,15 @@ def df_split(df, balancing='None', holdout_ratio=0.25,
     """
 
     # Holdout for final model test
-    X_all = df.drop(columns = 'y')
+    X_all = df.drop(columns='y')
     y_all = df["y"]
 
-    X, X_holdout, y, y_holdout  = train_test_split(
+    X, X_holdout, y, y_holdout = train_test_split(
         X_all, y_all, test_size=holdout_ratio, stratify=y_all, random_state=holdout_random_state
     )
 
-    df_holdout = pd.concat([X_holdout,y_holdout],axis=1)
-    df_rest = pd.concat([X,y],axis=1)
+    df_holdout = pd.concat([X_holdout, y_holdout], axis=1)
+    df_rest = pd.concat([X, y], axis=1)
 
     # If the features (which you have selected) become lesser, duplicates would appear given the same sample size
     print("The number of repeated (redundant) samples in the holdout dataset given your selection of features for "
@@ -1295,16 +1304,246 @@ def df_simpleimputer_scaled(df):
     return df_new
 
 
-# TODO Perform statistical testing of all existing features using Chi-square and T-test for two populations (asthma, no asthma)
-def df_feature_testing(df):
+# Perform statistical testing of all existing features using Chi-square and T-test for two populations (asthma,
+# no asthma)
+def df_feature_stats(df_child, target='y'):
+    """df_child is cleaned dataframe with y as target of testing, categorical feature is defined as no more than 10 unqiue values (frequencies), numeric features are the rest.
     """
-    :param df:
-    :return:
+    numeric_col = []
+    categorical_col = []
+    for i in df_child.columns:
+        if df_child[i].nunique() > 10:
+            numeric_col.append(i)
+        elif i != "y":
+            categorical_col.append(i)
+
+    # Create numeric stats dataframe
+    numeric_dict = {}
+    for i in numeric_col:
+        # Calculate difference of mean value - [Asthma Group - No_Asthma Group]
+        diff_mean = np.mean(df_child[df_child[target] == 1][i]) - np.mean(df_child[df_child[target] == 0][i])
+
+        # Perform independent t-test for two populations
+        temp = pg.ttest(
+            df_child[df_child[target] == 0][i],
+            df_child[df_child[target] == 1][i],
+            paired=False,
+            alternative="two-sided",
+            correction="auto",
+        ).rename(index={"T-test": i})
+
+        # Insert extra information
+        temp.insert(4, "diff", diff_mean)
+
+        # Store the result
+        numeric_dict[i] = temp
+
+    numeric_feature_stats = pd.concat([v for k, v in numeric_dict.items()], axis=0).sort_values('p-val')
+
+    # Create categorical stats dataframe
+    categorical_dict = {}
+    for i in categorical_col:
+        # Perform Chi Square Test for categorical features for two populations (with or without asthma)
+        expected, observed, stats = pg.chi2_independence(
+            df_child,
+            x=i,
+            y=target,
+            correction=False,
+        )
+        stats.rename(index={0: i}, inplace=True)
+
+        # Store 'Pearson' Chi-Square Result
+        categorical_dict[i] = stats[:1]
+
+    categorical_feature_stats = pd.concat([v for k, v in categorical_dict.items()], axis=0).sort_values('pval')
+
+    return numeric_feature_stats, categorical_feature_stats
+
+
+# Perform alluvial analysis for target variables (visualization)
+def target_alluvial_analysis(df_child,target_list=["Respiratory_Problems_Birth", "Recurrent_Wheeze_1y", "Asthma_Diagnosis_3yCLA",
+                     "Asthma_Diagnosis_5yCLA"]):
     """
-    pass
+    Perform alluvial analysis for asthma targets. Available target include:['Triggered_Asthma_5yCLA', 'Triggered_Asthma_3yCLA', 'Wheeze_3yCLA', 'Wheeze_5yCLA', 'Asthma_Diagnosis_5yCLA ', 'Asthma_Diagnosis_3yCLA ',
+    'Respiratory_Problems_Birth', 'Wheeze_3m', 'Noncold_Wheeze_3m', 'Wheeze_1y', 'Wheeze_6m', 'Recurrent_Wheeze_1y', 'Recurrent_Wheeze_3y', 'Recurrent_Wheeze_5y', 'Wheeze_Traj_Type']
 
-# TODO Perform alluvial analysis for target variables (visualization)
-def alluvial_analysis(column_list):
-    """"""
-    pass
+    Currently, the supported target_list must be 4 potential target variables, with the first two in binary format (the constraint is due to manual coloring of flow and position)
+    with the later two are three year diagnosis and five year diagnosis.
 
+    Must "import plotly.graph_objects as go" Before apply this function
+
+    Parameters:
+    --------------
+    target_list: list, must be in time order. with the earliest being the first and latest being the last
+
+    Returns:
+    --------------
+    Three steps of flowing as DataFrame between four time points
+
+    """
+    # Add one column for easy counting
+    df_child["Count"] = 1
+
+    # Flow One: Birth - 1 y
+    # Calculate aggregate of the combinations of two
+    flow_1 = (
+        df_child.groupby(target_list[:2])
+            .sum()
+            .reset_index()[target_list[:2] + ["Count"]]
+    )
+
+    # Calcuate Percentage
+    flow_1["Percentage"] = round(
+        flow_1.groupby([target_list[0]]).apply(lambda x: x / x.sum()).Count * 100, 1,
+    )
+
+    # Re-label according to plotly accepted format
+    flow_1[target_list[1]] = flow_1[target_list[1]] + flow_1[target_list[0]].nunique()
+
+    # Flow Two:
+    # Aggregate
+    flow_2 = (
+        df_child.groupby(target_list[1:3])
+            .sum()
+            .reset_index()[target_list[1:3] + ["Count"]]
+    )
+
+    # Relabel
+    flow_2[target_list[1]] = flow_2[target_list[1]] + flow_1[target_list[0]].nunique()
+
+    flow_2[target_list[2]] = (
+            flow_2[target_list[2]]
+            + flow_1[target_list[0]].nunique()
+            + flow_2[target_list[1]].nunique()
+    )
+
+    # Percentage
+    flow_2["Percentage"] = round(
+        flow_2.groupby([target_list[1]]).apply(lambda x: x / x.sum()).Count * 100, 1
+    )
+
+    # Flow three:
+    flow_3 = (
+        df_child.groupby(target_list[2:4])
+            .sum()
+            .reset_index()[target_list[2:4] + ["Count"]]
+    )
+
+    # Relabel
+    flow_3[target_list[2]] = (
+            flow_3[target_list[2]]
+            + flow_1[target_list[0]].nunique()
+            + flow_2[target_list[1]].nunique()
+    )
+
+    flow_3[target_list[3]] = (
+            flow_3[target_list[3]]
+            + flow_1[target_list[0]].nunique()
+            + flow_2[target_list[1]].nunique()
+            + flow_3[target_list[2]].nunique()
+    )
+
+    # Percentage
+    flow_3["Percentage"] = round(
+        flow_3.groupby([target_list[2]]).apply(lambda x: x / x.sum()).Count * 100, 1,
+    )
+
+    # Drawing data
+    source = pd.concat(
+        [flow_1.iloc[:, 0], flow_2.iloc[:, 0], flow_3.iloc[:, 0]]
+    ).reset_index(drop=True)
+    target = pd.concat(
+        [flow_1.iloc[:, 1], flow_2.iloc[:, 1], flow_3.iloc[:, 1]]
+    ).reset_index(drop=True)
+    volumn = pd.concat(
+        [flow_1.iloc[:, 2], flow_2.iloc[:, 2], flow_3.iloc[:, 2]]
+    ).reset_index(drop=True)
+    label_number = pd.concat(
+        [flow_1.iloc[:, 3], flow_2.iloc[:, 3], flow_3.iloc[:, 3]]
+    ).reset_index(drop=True)
+    label = [
+        "The percentage that flows to target is "
+        + str(j)
+        + "% with the number of "
+        + str(i)
+        for i, j in zip(volumn, label_number)
+    ]
+
+    # Artist
+    link_color = [
+        "rgba(242, 116, 32, 1)",
+        "rgba(242, 116, 32, 1)",
+        "rgba(73, 148, 206, 1)",
+        "rgba(73, 148, 206, 1)",
+        "rgba(250, 188, 19, 0.5)",
+        "rgba(250, 188, 19, 0.5)",
+        "rgba(250, 188, 19, 0.5)",
+        "rgba(127, 194, 65, 0.5)",
+        "rgba(127, 194, 65, 0.5)",
+        "rgba(127, 194, 65, 0.5)",
+        "rgba(253, 227, 202, 20.5)",
+        "rgba(253, 227, 202, 20.5)",
+        "rgba(253, 227, 202, 20.5)",
+        "rgba(127, 94, 165, 20)",
+        "rgba(127, 94, 165, 20)",
+        "rgba(127, 94, 165, 20)",
+        "rgba(21, 211, 211, 0.5)",
+        "rgba(21, 211, 211, 0.5)",
+        "rgba(21, 211, 211, 0.5)",
+    ]
+
+    node_label = [
+        "No Respiratory Problems at Birth",
+        "Respiratory Problems at Birth",
+        "No Wheeze Report at 1y",
+        "Wheeze Report at 1y",
+        "No Asthma at 3y",
+        "Asthma at 3y",
+        "Possible Asthma at 3y",
+        "No Asthma at 5y",
+        "Asthma at 5y",
+        "Possible Asthma at 5y",
+    ]
+
+    node_color = [
+        "#F27420",
+        "#4994CE",
+        "#FABC13",
+        "#7FC241",
+        "#D3D3D3",
+        "#8A5988",
+        "#449E9E",
+        "#A0693D",
+        "#AD9A24",
+        "#E8F5C0",
+    ]
+
+    # Plotting
+    fig = go.Figure(
+        data=[
+            go.Sankey(
+                node=dict(
+                    pad=15,
+                    thickness=10,
+                    line=dict(color="black", width=0.5),
+                    label=node_label,
+                    color=node_color,
+                ),
+                link=dict(
+                    source=source,  # indices correspond to labels, eg A1, A2, A1, B1, ...
+                    target=target,
+                    value=volumn,
+                    label=label,
+                    color=link_color,
+                ),
+            )
+        ]
+    )
+
+    layout = dict(
+        title="CHILD Study Asthma Progression", height=772, font=dict(size=12),
+    )
+
+    fig.update_layout(layout)
+
+    return fig
