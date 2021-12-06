@@ -1,4 +1,5 @@
 __author__ = 'Stan He@Sickkids.ca'
+__contact__ = 'stan.he@sickkids.ca'
 __date__ = '2021-10-15'
 """Preprocessing pipeline components
 """

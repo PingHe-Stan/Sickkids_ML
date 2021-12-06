@@ -77,6 +77,11 @@ def data_selection(data_path='../data/'):
 
     # Genetic
 
+    features_of_parental_ethnicity = [0]
+    features_of_parental_ethnicity[0] = data_path + "Prenatal Q91PRNMH18WK.xlsx"
+    features_of_parental_ethnicity.append('Genetic')
+
+
     features_of_parental_spt = [0]
     features_of_parental_spt[0] = data_path + 'Parental SPT.xlsx'
     features_of_parental_spt.append('Genetic')
@@ -127,8 +132,9 @@ def data_selection(data_path='../data/'):
 
     # Recurrent Wheeze at 3y and 5y
     target_of_recwheeze = []
-    target_of_recwheeze.append(data_path + 'Wheeze derived variables.xlsx')
+    target_of_recwheeze.append(data_path + 'Wheeze derived variables.xlsx' + 'wheeze phenotypes.xlsx')
     target_of_recwheeze.append('Target of curated wheeze')
+
 
     # Define dataset dataframe from different perspectives
     data_dict = dict()
@@ -607,3 +613,4 @@ def generate_raw_xlsx(data_path='../data/', output_path='../output'):
     df_child_raw.to_excel(output_path + '/CHILD_raw.xlsx', index=False)
 
     return df_child_raw
+

@@ -16,6 +16,7 @@ CHILD_DATA_PATH = CHILD_RAW_DIR + "CHILD_raw.xlsx"
 CHILD_BREASTFEEDING_PATH = ADDON_DIR + "breastfeeding data.xlsx"
 CHILD_WHEEZEPHENOTYPE_PATH = ADDON_DIR + "wheeze phenotypes.xlsx"
 CHILD_ETHNICITY_PATH = ADDON_DIR + "Prenatal Q91PRNMH18WK.xlsx"
+CHILD_SPT_PATH = ADDON_DIR + "Child SPT 1y 3y 5y.xlsx"
 
 # Variables category
 

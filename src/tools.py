@@ -1,5 +1,6 @@
 __author__ = 'Stan He@Sickkids.ca'
-__date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01', '2021-11-08']
+__contact__ = 'stan.he@sickkids.ca'
+__date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01', '2021-11-08', '2021-11-19']
 
 """Gadgets for various tasks 
 """
@@ -34,6 +35,7 @@ from sklearn.metrics import (
     confusion_matrix,
     accuracy_score,
     #    roc_curve,
+    average_precision_score,
     classification_report,
     f1_score,
     precision_score,
@@ -50,6 +52,9 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 
 from sklearn.inspection import permutation_importance
+from sklearn.model_selection import PredefinedSplit, StratifiedKFold, LeaveOneOut
+from mlxtend.evaluate import PredefinedHoldoutSplit
+from mlxtend.feature_selection import SequentialFeatureSelector as SFS
 
 
 # Load more variables to existing xlsx
@@ -58,12 +63,13 @@ def load_child_with_more(
         child_breastfeeding_path=CHILD_BREASTFEEDING_PATH,
         child_wheezephenotype_path=CHILD_WHEEZEPHENOTYPE_PATH,
         child_ethnicity_path=CHILD_ETHNICITY_PATH,
+        child_spt_path=CHILD_SPT_PATH
 ):
     """Load CHILD data with add-on features from additional files
     """
 
     print(
-        f"Loading {child_ethnicity_path, child_data_path, child_breastfeeding_path, child_wheezephenotype_path}, and merging")
+        f"Loading {child_ethnicity_path, child_data_path, child_breastfeeding_path, child_wheezephenotype_path, child_spt_path}, and merging")
     df_child = pd.read_excel(child_data_path)
 
     df_bf = pd.read_excel(child_breastfeeding_path)
@@ -95,6 +101,16 @@ def load_child_with_more(
     ).map({2: "Caucasian", 1: "HalfCaucas", 0: "NonCaucas"})
     df_ethnicity = df_ethnicity.replace({8888: np.nan})
 
+    df_spt = pd.read_excel(
+        child_spt_path,
+        usecols=["SubjectNumber", "atopy1y", "food1y", "inhalant1y", "atopy3y", "food3y", "inhalant3y",
+                 "atopy5y", "food5y", "inhalant5y"]
+    )
+
+    df_spt.columns = ["Subject_Number", "Child_Atopy_1y", "Child_Food_1y", "Child_Inhalant_1y"
+        , "Child_Atopy_3y", "Child_Food_3y", "Child_Inhalant_3y"
+        , "Child_Atopy_5y", "Child_Food_5y", "Child_Inhalant_5y"]
+
     df_child = pd.merge(
         pd.merge(df_child, df_bf, on="Subject_Number", how="left"),
         df_wp,
@@ -102,7 +118,14 @@ def load_child_with_more(
         how="left",
     )
 
+    # Add on child ethinicity
+
     df_child = pd.merge(df_child, df_ethnicity, on="Subject_Number", how="left")
+
+    # Add on child skin prick test
+    df_child = pd.merge(df_child, df_spt, on="Subject_Number", how="left")
+
+    # Write new file
     df_child.to_excel(CHILD_RAW_DIR + "CHILD_with_addon.xlsx", index=False)
     print(f"The dataframe merged with more information is saved to {CHILD_RAW_DIR} as 'CHILD_with_addon.xlsx'")
 
@@ -162,13 +185,13 @@ def grouped_feature_generator(df):
     feature_timepoint_mapping = {
         "3m": "3m",
         "6m": "_6m",
-        "12m": "12m|1y",
+        "12m": "_12m|_1y",
         "18m": "18m|BF_implied",
         "24m": "24m|2y",
         "36m": "36m|3y",
         "48m": "48m|4y",
         "60m": "60m|5y|Traj_Type",
-        "1_9m_2hy": "1m$|9m|2hy"
+        "1_9m_2hy": "_1m$|9m|_2hy|_30m"
     }
 
     for k, v in feature_timepoint_mapping.items():
@@ -227,6 +250,465 @@ def grouped_feature_generator(df):
     )
 
     return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
+
+
+# Extract index_number from raw dataset for all further modelling, training, evaluation, and holdout testing
+def df_holdout_throughout(
+    df_child,
+    include_dust=False,
+    sample_na_allow=30,
+    holdout_random_state=100,
+    ingredient_persist=15,
+    ingredient_transient=5,
+    ingredient_emerged=5,
+    ingredient_no_asthma=110,
+):
+    # Display the sample number change
+    print("The original sample dimension is", df_child.shape)
+
+    df_child_ml = df_child[
+        (df_child.Asthma_Diagnosis_3yCLA.notna())
+        & (df_child.Asthma_Diagnosis_5yCLA.notna())
+    ].copy()
+
+    print(
+        "The sample dimension with both 3y and 5y clinical assessment is",
+        df_child_ml.shape,
+    )
+
+    dust_column_names = df_child_ml.columns[
+        df_child_ml.columns.str.contains("Home_.*P_3m")
+    ]
+    if include_dust:
+        df_child_ml = df_child_ml.dropna(axis="index", subset=dust_column_names)
+        print("The sample dimension with dust sample data is", df_child_ml.shape)
+    else:
+        print("The removed dust columns are", dust_column_names)
+        df_child_ml = df_child_ml.drop(columns=dust_column_names)
+        print("The sample dimension without dust sample data is", df_child_ml.shape)
+
+    # Group division
+    no_asthma = df_child_ml[
+        (df_child_ml.Asthma_Diagnosis_5yCLA == 0)
+        & (df_child_ml.Asthma_Diagnosis_3yCLA == 0)
+    ]
+
+    print("The size of no asthma subject group is:", no_asthma.shape[0])
+
+    transient_asthma = df_child_ml[
+        (df_child_ml.Asthma_Diagnosis_5yCLA == 0)
+        & (df_child_ml.Asthma_Diagnosis_3yCLA == 1)
+    ]
+
+    print(
+        "Transient asthma is defined as those who were diagnosed as definite asthma at 3y but rediagnosed as no asthma at 5y."
+    )
+    print("The size of transient asthma subject group is:", transient_asthma.shape[0])
+
+    emerged_asthma = df_child_ml[
+        (df_child_ml.Asthma_Diagnosis_5yCLA == 1)
+        & (df_child_ml.Asthma_Diagnosis_3yCLA == 0)
+    ]
+
+    print(
+        "Emerged asthma is defined as those who were diagnosed as no asthma at 3y but rediagnosed as definite asthma at 5y."
+    )
+    print("The size of emerged asthma subject group is:", emerged_asthma.shape[0])
+
+    persistent_asthma = df_child_ml[
+        (df_child_ml.Asthma_Diagnosis_5yCLA == 1)
+        & (df_child_ml.Asthma_Diagnosis_3yCLA == 1)
+    ]
+
+    print("The size of persistent asthma subject group is:", persistent_asthma.shape[0])
+
+    rng = np.random.RandomState(holdout_random_state)
+
+    permutated_persist_asthma_index = rng.permutation(persistent_asthma.index)
+    permutated_transient_asthma_index = rng.permutation(transient_asthma.index)
+    permutated_emerged_asthma_index = rng.permutation(emerged_asthma.index)
+    permutated_no_asthma_index = rng.permutation(no_asthma.index)
+
+    holdout_persist_subjectnumber = permutated_persist_asthma_index[:ingredient_persist]
+    rest_persist_subjectnumber = permutated_persist_asthma_index[ingredient_persist:]
+    holdout_emerged_subjectnumber = permutated_emerged_asthma_index[:ingredient_emerged]
+    rest_emerged_subjectnumber = permutated_emerged_asthma_index[ingredient_emerged:]
+
+    holdout_noasthma_subjectnumber = permutated_no_asthma_index[:ingredient_no_asthma]
+    rest_noasthma_subjectnumber = permutated_no_asthma_index[ingredient_no_asthma:]
+    holdout_transient_subjectnumber = permutated_transient_asthma_index[
+        :ingredient_transient
+    ]
+    rest_transient_subjectnumber = permutated_transient_asthma_index[
+        ingredient_transient:
+    ]
+
+    holdout_index = (
+        list(holdout_persist_subjectnumber)
+        #            + list(holdout_transient_subjectnumber)
+        + list(holdout_noasthma_subjectnumber)
+        + list(holdout_emerged_subjectnumber)
+    )
+
+    rest_index = (
+        list(rest_persist_subjectnumber)
+        #            + list(rest_transient_subjectnumber)
+        + list(rest_noasthma_subjectnumber)
+        + list(rest_emerged_subjectnumber)
+    )
+
+    return df_child_ml, rest_index, holdout_index
+
+#Identify the minimal features that generate highest performance.
+def df_minimal_features(
+        df,
+        train_index,
+        test_index,
+        baseline_features=set(),
+        strategy="forward",
+        inspection_max=300, # Times of iteration to search for minimal feature set
+        estimator=LogisticRegression(class_weight="balanced"),
+        scoring_func=average_precision_score,
+):
+    """Identify the minimal features that generate highest performance.
+    Critical assumptions: if model performance didn't increase because of any one feature inclusion/exclusion, then the performance plateaued.
+    This assumption could easily be flawed, if synergies of a combination of features (two or more) can be captured by the model.
+
+    Parameters:
+    -------------------
+    df: Dataframe
+        Processed dataframe where target is defined as "y".
+
+    train_index: list
+        Index list of the train dataset
+
+    test_index: list
+        Index list of the test dataset
+
+    baseline_features: set, default, empty set
+        Initial starting matrix
+
+    strategy: string, default, "forward"
+        "forward": start from features of any length and to include one extra feature with the purpose of increasing model performance.
+        "backward": start from full features and to exclude one feature at a time in order to increase model performance.
+        "bi_direction": first forward, then backward. Specifically, start from features of any length and begin to include one extra feature of maximal impact to increase model performance. If no increase can be achieved, then exclude one feature at a time to shrink the feature list.
+        "retrospective": start from baseline features. For each step, two inspection will be performed. During inclusion inspection, we see whether an increase of performance can be achived. If ture, then add features with maximal impact. If none can increase the performance, an marker will be created to indicate such situation.
+        Then comes exclusion inpection, where we drop features that hurt the model performance. Such retrospective one-step inspection will stop if neither inclusion nor exclusion can increase model performance. (Performance plateaued)
+
+    Returns:
+    --------------------
+    A set of minimal features, and A dictionary of all calcuated combinations.
+
+    """
+
+    feature_combination_result = {}
+
+    X_train = df.loc[train_index, :].drop(columns="y")
+    y_train = df.loc[train_index, :]["y"]
+    X_test = df.loc[test_index, :].drop(columns="y")
+    y_test = df.loc[test_index, :]["y"]
+
+    if baseline_features:
+        estimator.fit(X_train[baseline_features], y_train)
+        predicted = estimator.predict(X_test[baseline_features])
+        feature_combination_result[str(baseline_features)] = scoring_func(
+            y_test, predicted
+        )
+        print(
+            f"Confussion Matrix for features {baseline_features} is: {confusion_matrix(y_test, predicted)}\n"
+        )
+        current_score = scoring_func(y_test, predicted)
+
+    else:  # if baseline_feature is empty, then create a one-element baseline feature space
+        for feature_name in X_train.columns:
+            baseline_features.add(feature_name)
+            estimator.fit(X_train[baseline_features], y_train)
+            predicted = estimator.predict(X_test[baseline_features])
+            feature_combination_result[str(baseline_features)] = scoring_func(
+                y_test, predicted
+            )
+            print(
+                f"Confussion Matrix for features {baseline_features} is: {confusion_matrix(y_test, predicted)}\n"
+            )
+            baseline_features.remove(feature_name)
+
+        else:
+            baseline_features = eval(
+                max(feature_combination_result, key=feature_combination_result.get)
+            )
+            current_score = max(feature_combination_result.values())
+
+    # Forward Search
+    if strategy == "forward":
+        for i in range(len(set(X_train.columns) - baseline_features)):
+            for feature_name in set(X_train.columns) - baseline_features:
+                baseline_features.add(feature_name)
+                estimator.fit(X_train[baseline_features], y_train)
+                predicted = estimator.predict(X_test[baseline_features])
+                feature_combination_result[str(baseline_features)] = scoring_func(
+                    y_test, predicted
+                )
+                print(
+                    f"Confussion Matrix for features {baseline_features} is: {confusion_matrix(y_test, predicted)}\n"
+                )
+                baseline_features.remove(feature_name)
+
+            else:  # After each step of inspection
+                max_score = max(feature_combination_result.values())
+                if max_score > current_score:
+                    # Redefine baseline_feature through extracting the key with highest value
+                    baseline_features = eval(
+                        max(
+                            feature_combination_result,
+                            key=feature_combination_result.get,
+                        )
+                    )
+                    current_score = max_score
+                else:
+                    return baseline_features, feature_combination_result
+        else:  # If model performance keep increasing with each step of inclusion inspection
+            return baseline_features, feature_combination_result
+
+    # Backward search
+    elif strategy == "backward":
+        for i in range(len(set(baseline_features))):
+            if (
+                    len(set(baseline_features)) <= 1
+            ):  # If there is only one element for the baseline_features
+                return baseline_features, feature_combination_result
+            else:
+                for feature_name in baseline_features:  # Perform inspection
+                    baseline_features.remove(feature_name)
+                    estimator.fit(X_train[baseline_features], y_train)
+                    predicted = estimator.predict(X_test[baseline_features])
+                    feature_combination_result[str(baseline_features)] = scoring_func(
+                        y_test, predicted
+                    )
+                    print(
+                        f"Confussion Matrix for features {baseline_features} is: {confusion_matrix(y_test, predicted)}\n"
+                    )
+                    baseline_features.add(feature_name)
+                else:  # After each round of inspection
+                    max_score = max(feature_combination_result.values())
+                    if max_score > current_score:
+                        # Redefine baseline_feature through extracting the key with highest value
+                        baseline_features = eval(
+                            max(
+                                feature_combination_result,
+                                key=feature_combination_result.get,
+                            )
+                        )
+                        current_score = max_score
+                    else:
+                        return baseline_features, feature_combination_result
+
+    # Bi-direction search algorithm
+    elif strategy == "bi_direction":
+        for i in range(len(set(X_train.columns) - baseline_features)):
+            for feature_name in set(X_train.columns) - baseline_features:
+                baseline_features.add(feature_name)
+                estimator.fit(X_train[baseline_features], y_train)
+                predicted = estimator.predict(X_test[baseline_features])
+                feature_combination_result[str(baseline_features)] = scoring_func(
+                    y_test, predicted
+                )
+                print(
+                    f"Confussion Matrix for features {baseline_features} is: {confusion_matrix(y_test, predicted)}\n"
+                )
+                baseline_features.remove(feature_name)
+
+            else:  # After each step of inspection
+                max_score = max(feature_combination_result.values())
+                if max_score > current_score:
+                    # Redefine baseline_feature through extracting the key with highest value
+                    baseline_features = eval(
+                        max(
+                            feature_combination_result,
+                            key=feature_combination_result.get,
+                        )
+                    )
+                    current_score = max_score
+                else:
+                    # Begin backward search
+                    for i in range(len(set(baseline_features))):
+                        if (
+                                len(set(baseline_features)) <= 1
+                        ):  # If there is only one element for the baseline_features
+                            return baseline_features, feature_combination_result
+                        else:
+                            for feature_name in baseline_features:  # Perform inspection
+                                baseline_features.remove(feature_name)
+                                estimator.fit(X_train[baseline_features], y_train)
+                                predicted = estimator.predict(X_test[baseline_features])
+                                feature_combination_result[
+                                    str(baseline_features)
+                                ] = scoring_func(y_test, predicted)
+                                print(
+                                    f"Confussion Matrix for features {baseline_features} is: {confusion_matrix(y_test, predicted)}\n"
+                                )
+                                baseline_features.add(feature_name)
+                            else:  # After each round of inspection
+                                max_score = max(feature_combination_result.values())
+                                if max_score > current_score:
+                                    # Redefine baseline_feature through extracting the key with highest value
+                                    baseline_features = eval(
+                                        max(
+                                            feature_combination_result,
+                                            key=feature_combination_result.get,
+                                        )
+                                    )
+                                    current_score = max_score
+                                else:
+                                    return baseline_features, feature_combination_result
+
+        else:  # If model performance keep increasing with any inclusion of features
+            # Begin backward search
+            for i in range(len(set(baseline_features))):
+                if (
+                        len(set(baseline_features)) <= 1
+                ):  # If there is only one element for the baseline_features
+                    return baseline_features, feature_combination_result
+                else:
+                    for feature_name in baseline_features:  # Perform inspection
+                        baseline_features.remove(feature_name)
+                        estimator.fit(X_train[baseline_features], y_train)
+                        predicted = estimator.predict(X_test[baseline_features])
+                        feature_combination_result[
+                            str(baseline_features)
+                        ] = scoring_func(y_test, predicted)
+                        print(
+                            f"Confussion Matrix for features {baseline_features} is: {confusion_matrix(y_test, predicted)}\n"
+                        )
+                        baseline_features.add(feature_name)
+                    else:  # After each round of inspection
+                        max_score = max(feature_combination_result.values())
+                        if max_score > current_score:
+                            # Redefine baseline_feature through extracting the key with highest value
+                            baseline_features = eval(
+                                max(
+                                    feature_combination_result,
+                                    key=feature_combination_result.get,
+                                )
+                            )
+                            current_score = max_score
+                        else:
+                            return baseline_features, feature_combination_result
+
+    # Retrospective one-step search algorithm
+    # Two way inspection
+    elif strategy == "retrospective":
+
+        # Create a large number for the times of inspection for retrospective one-step inspection.
+        print(
+            f"Total number of retrospective bi-direction inspection is {inspection_max} "
+        )
+
+        # For signaling successfuly identified the minimal subset of features that render the highest performance.
+        inclusion_marker = 0  # 1 means that adding of any one feature failed to increase model performance for the current baseline feature space, default is 0, suggesting the the model performance could be increased with an inclusion.
+        exclusion_marker = 0  # 1 means exclusion of any one feature failed to improve model performance for the current subset of feature, default is 0, suggesting the the model performance could be increased with an exclusion.
+
+        # Assumption: if one feature is found to hurt the model, then this feature might also hurt the model with its combination of different subset of features.
+        exclusion_list = (
+            set()
+        )  # This assumption could possibly be flawed as it omits the synergies of the feature with other combinations of features. Nevertheless, it is still introduced with the purpose to decrease the computation repetition. And provide a way out of perpetuating loop.
+        inpection_count = 0  # This number is used to see how many inspection have been conducted so far
+
+        # Now begin to identify minimal subset of features
+        for i in range(inspection_max):
+
+            # Check whether any of the termination criterion is met
+            if inclusion_marker * exclusion_marker:
+                print(
+                    f"Congrat! The minimal subset of feature has been identified given the baseline feature after {inpection_count} inspections!"
+                )
+                return baseline_features, feature_combination_result
+
+            # Perform inclusion inspection
+            for feature_name in (
+                    set(X_train.columns) - baseline_features - exclusion_list
+            ):
+                baseline_features.add(feature_name)
+                estimator.fit(X_train[baseline_features], y_train)
+                predicted = estimator.predict(X_test[baseline_features])
+                feature_combination_result[str(baseline_features)] = scoring_func(
+                    y_test, predicted
+                )
+                print(
+                    f"Confussion Matrix for features {baseline_features} is: {confusion_matrix(y_test, predicted)}\n"
+                )
+                baseline_features.remove(feature_name)
+
+            else:  # After each step of inspection
+                max_score = max(feature_combination_result.values())
+                if max_score > current_score:
+                    # Redefine baseline_feature through extracting the key with highest value
+                    inclusion_marker = 0
+                    baseline_features = eval(
+                        max(
+                            feature_combination_result,
+                            key=feature_combination_result.get,
+                        )
+                    )
+                    current_score = max_score
+                else:
+                    # Mark such situation where inclusion of any one feature failed to increase model performance
+                    inclusion_marker = 1
+
+            if (len(set(baseline_features)) <= 1) & (
+                    inclusion_marker == 1
+            ):  # If there is only one element for the baseline_features
+
+                print("It seems that one feature can produce highest performance!")
+                return baseline_features, feature_combination_result
+
+            else:
+                # Perform exclusion inspection
+
+                # Check whether any of the termination criterion is met
+                if inclusion_marker * exclusion_marker == 1:
+                    print(
+                        f"Congrat! The minimal subset of feature has been identified given the baseline feature after {inpection_count} inspections!"
+                    )
+                    return baseline_features, feature_combination_result
+
+                for feature_name in baseline_features:  # Perform inspection
+                    baseline_features.remove(feature_name)
+                    estimator.fit(X_train[baseline_features], y_train)
+                    predicted = estimator.predict(X_test[baseline_features])
+                    feature_combination_result[str(baseline_features)] = scoring_func(
+                        y_test, predicted
+                    )
+                    print(
+                        f"Confussion Matrix for features {baseline_features} is: {confusion_matrix(y_test, predicted)}\n"
+                    )
+                    baseline_features.add(feature_name)
+                else:  # After each round of inspection
+                    max_score = max(feature_combination_result.values())
+                    if max_score > current_score:
+                        # Redefine baseline_feature through extracting the key with highest value
+                        exclusion_marker = 0
+                        baseline_features_one_less = eval(
+                            max(
+                                feature_combination_result,
+                                key=feature_combination_result.get,
+                            )
+                        )
+                        exclusion_list.update(
+                            baseline_features - baseline_features_one_less
+                        )
+                        baseline_features = baseline_features_one_less
+                        current_score = max_score
+                    else:
+                        # Mark such situation where exclusion of any one feature failed to increase model performance
+                        exclusion_marker = 1
+
+            inpection_count = inpection_count + 1
+
+        else:  # If model performance keep increasing with any inclusion of features
+            print(
+                f"The optimal subset of feature after {inspection_max} times of inspection are generated!"
+            )
+            return baseline_features, feature_combination_result
 
 
 # # Define your dataset based on target variable, which cannot be controlled in ML pipeline
@@ -1304,6 +1786,144 @@ def df_simpleimputer_scaled(df):
     return df_new
 
 
+# View the highest performed features for various machine learning models
+def ml_feature_selection(
+    X,
+    y,
+    cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
+    priori_k=25,
+    scoring="average_precision",
+    is_floating=True,
+    fixed_features=None,
+    precision_inspection_range=0.02,
+    test_model_number=None
+):
+    """
+    Generate feature subset performance dataframe for minimal feature selection.
+    ***Note: For Cross-validation, the index should be reset to default (0 to sample size-1) before cv can be put to use.
+
+    :param X: feature matrix of train, evaluation with target variable dropped
+    :param y: target label
+    :param cv: PredefinedHoldoutSplit using test_index, and StratifiedKFold for multiple validation for feature selection
+    :param priori_k: the number of feature to include for feature subset selection
+    :param scoring: what metrics to use for feature selection
+    :param is_floating: allow retrospective inspection for each added feature
+    :param fixed_features: any feature to include persistently based on interest
+    :param precision_inspection_range: allow minor difference of performance to check the minimal subset of features
+    :param test_model_number: number of estimators to try (quicker stop)
+    :return: birth_fs_df, birth_features_frequency, res_dict
+    """
+
+    # Untuned Estimator to obtain features with maximal performance
+    svc = SVC(class_weight="balanced")
+    knn = KNeighborsClassifier(n_neighbors=5)
+    lr = LogisticRegression(class_weight="balanced")
+    rf = RandomForestClassifier(class_weight="balanced",random_state=2021)
+    xgb = XGBClassifier(class_weight="balanced")
+    dt = DecisionTreeClassifier(
+        criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
+    )
+
+    # Records all the result
+    res_dict = {}
+    for model, model_name in zip(
+        [lr, rf, dt, knn, xgb,  svc][:test_model_number], ["lr", "rf", "dt", "knn", "xgb",  "svc"][:test_model_number]
+    ):
+        print(
+            "Current classifier where feature selection is being tested is:", model_name
+        )
+        sfs = SFS(
+            model,
+            k_features=priori_k,
+            forward=True,
+            floating=is_floating,
+            verbose=2,
+            scoring=scoring,
+            cv=cv,
+            fixed_features=fixed_features,
+        )
+
+        sfs = sfs.fit(X, y)
+
+        res_dict[model_name] = pd.DataFrame.from_dict(
+            sfs.get_metric_dict()
+        ).T.sort_values(by="avg_score", ascending=False)
+
+    # Extract only the best performed subset
+    birth_fs_df = pd.DataFrame()
+    for i, j in zip(res_dict.values(), res_dict.keys()):
+        # Add more features to model feature inspection dataframe
+        i["clf"] = j
+        i["number_of_features"] = i["feature_idx"].apply(len)
+
+        rank = 1
+        rank_list = []
+        highest_number = i["avg_score"].iloc[0]
+
+        # Calculate the ranking according to precision inspection range
+        for score in i["avg_score"]:
+            if score >= highest_number - precision_inspection_range:
+                rank_list.append(rank)
+            else:
+                highest_number = score
+                rank = rank + 1
+                rank_list.append(rank)
+
+        # Retrieve the minimal feature of the precision rank - top rank is 1
+        i["feature_precision_rank"] = rank_list
+
+        # Rank 1-N: "1" represent highest precision, sorted by ascending order
+        # Number of features: sorted by ascending order as we are more interested in the minimal number of subset
+        # Avg_score: sorted by descending order as we would like to keep the highest number in the top
+        i.sort_values(
+            by=["feature_precision_rank", "number_of_features", "avg_score"],
+            ascending=[True, True, False],
+            inplace=True,
+        )
+
+        # Add top row of features performance for each estimator to create a new dataframe
+        birth_fs_df = birth_fs_df.append(i[:1], ignore_index=True)
+
+    # After birth fs is created, sort first by 'avg_score'
+    birth_fs_df = birth_fs_df.sort_values(by="avg_score", ascending=False).reset_index(
+        drop=True
+    )
+
+    # Recreate the feature precision rank for the entire selected cohorts of models
+    rank = 1
+    rank_list = []
+    highest_number = birth_fs_df["avg_score"].iloc[0]
+
+    for score in birth_fs_df["avg_score"]:
+        if score >= highest_number - precision_inspection_range:
+            rank_list.append(rank)
+        else:
+            highest_number = score
+            rank = rank + 1
+            rank_list.append(rank)
+
+    # Retrieve the minimal feature of the precision rank - top rank is 1
+    birth_fs_df["feature_precision_rank"] = rank_list
+
+    # The minimal number of features for rank 1
+    birth_fs_df.sort_values(
+        by=["feature_precision_rank", "number_of_features", "avg_score"],
+        ascending=[True, True, False],
+        inplace=True,
+    )
+
+    # k to create feature repetition frequency for different models
+    k = []
+    for i in [list(i) for i in birth_fs_df["feature_names"].values]:
+        k = k + i
+
+    # Keep record of the feature repetition times
+    birth_features_frequency = pd.DataFrame(
+        {i: k.count(i) for i in set(k)}, index=["Frequency"]
+    ).T.sort_values(by="Frequency", ascending=False)
+
+    return birth_fs_df, birth_features_frequency, res_dict
+
 # Perform statistical testing of all existing features using Chi-square and T-test for two populations (asthma,
 # no asthma)
 def df_feature_stats(df_child, target='y'):
@@ -1314,14 +1934,15 @@ def df_feature_stats(df_child, target='y'):
     for i in df_child.columns:
         if df_child[i].nunique() > 10:
             numeric_col.append(i)
-        elif i != "y":
+        elif i != target:
             categorical_col.append(i)
 
     # Create numeric stats dataframe
     numeric_dict = {}
+    print("diff represents the mean value of non-asthma group minus the mean value of asthma group.")
     for i in numeric_col:
         # Calculate difference of mean value - [Asthma Group - No_Asthma Group]
-        diff_mean = np.mean(df_child[df_child[target] == 1][i]) - np.mean(df_child[df_child[target] == 0][i])
+        diff_mean = np.mean(df_child[df_child[target] == 0][i]) - np.mean(df_child[df_child[target] == 1][i])
 
         # Perform independent t-test for two populations
         temp = pg.ttest(
@@ -1361,8 +1982,20 @@ def df_feature_stats(df_child, target='y'):
 
 
 # Perform alluvial analysis for target variables (visualization)
-def target_alluvial_analysis(df_child,target_list=["Respiratory_Problems_Birth", "Recurrent_Wheeze_1y", "Asthma_Diagnosis_3yCLA",
-                     "Asthma_Diagnosis_5yCLA"]):
+def target_alluvial_analysis(df_child,
+                             target_list=["Respiratory_Problems_Birth", "Recurrent_Wheeze_1y", "Asthma_Diagnosis_3yCLA",
+                                          "Asthma_Diagnosis_5yCLA"], node_label=[
+            "No Respiratory Problems at Birth",
+            "Respiratory Problems at Birth",
+            "No Wheeze Report at 1y",
+            "Wheeze Report at 1y",
+            "No Asthma at 3y",
+            "Asthma at 3y",
+            "Possible Asthma at 3y",
+            "No Asthma at 5y",
+            "Asthma at 5y",
+            "Possible Asthma at 5y",
+        ], flow_to_display=3):
     """
     Perform alluvial analysis for asthma targets. Available target include:['Triggered_Asthma_5yCLA', 'Triggered_Asthma_3yCLA', 'Wheeze_3yCLA', 'Wheeze_5yCLA', 'Asthma_Diagnosis_5yCLA ', 'Asthma_Diagnosis_3yCLA ',
     'Respiratory_Problems_Birth', 'Wheeze_3m', 'Noncold_Wheeze_3m', 'Wheeze_1y', 'Wheeze_6m', 'Recurrent_Wheeze_1y', 'Recurrent_Wheeze_3y', 'Recurrent_Wheeze_5y', 'Wheeze_Traj_Type']
@@ -1448,26 +2081,7 @@ def target_alluvial_analysis(df_child,target_list=["Respiratory_Problems_Birth",
         flow_3.groupby([target_list[2]]).apply(lambda x: x / x.sum()).Count * 100, 1,
     )
 
-    # Drawing data
-    source = pd.concat(
-        [flow_1.iloc[:, 0], flow_2.iloc[:, 0], flow_3.iloc[:, 0]]
-    ).reset_index(drop=True)
-    target = pd.concat(
-        [flow_1.iloc[:, 1], flow_2.iloc[:, 1], flow_3.iloc[:, 1]]
-    ).reset_index(drop=True)
-    volumn = pd.concat(
-        [flow_1.iloc[:, 2], flow_2.iloc[:, 2], flow_3.iloc[:, 2]]
-    ).reset_index(drop=True)
-    label_number = pd.concat(
-        [flow_1.iloc[:, 3], flow_2.iloc[:, 3], flow_3.iloc[:, 3]]
-    ).reset_index(drop=True)
-    label = [
-        "The percentage that flows to target is "
-        + str(j)
-        + "% with the number of "
-        + str(i)
-        for i, j in zip(volumn, label_number)
-    ]
+    df_child.drop(columns='Count', inplace=True)
 
     # Artist
     link_color = [
@@ -1492,18 +2106,18 @@ def target_alluvial_analysis(df_child,target_list=["Respiratory_Problems_Birth",
         "rgba(21, 211, 211, 0.5)",
     ]
 
-    node_label = [
-        "No Respiratory Problems at Birth",
-        "Respiratory Problems at Birth",
-        "No Wheeze Report at 1y",
-        "Wheeze Report at 1y",
-        "No Asthma at 3y",
-        "Asthma at 3y",
-        "Possible Asthma at 3y",
-        "No Asthma at 5y",
-        "Asthma at 5y",
-        "Possible Asthma at 5y",
-    ]
+    # node_label = [
+    #     "No Respiratory Problems at Birth",
+    #     "Respiratory Problems at Birth",
+    #     "No Wheeze Report at 1y",
+    #     "Wheeze Report at 1y",
+    #     "No Asthma at 3y",
+    #     "Asthma at 3y",
+    #     "Possible Asthma at 3y",
+    #     "No Asthma at 5y",
+    #     "Asthma at 5y",
+    #     "Possible Asthma at 5y",
+    # ]
 
     node_color = [
         "#F27420",
@@ -1516,6 +2130,71 @@ def target_alluvial_analysis(df_child,target_list=["Respiratory_Problems_Birth",
         "#A0693D",
         "#AD9A24",
         "#E8F5C0",
+    ]
+
+    # Drawing data
+    if flow_to_display == 3:
+        source = pd.concat(
+            [flow_1.iloc[:, 0], flow_2.iloc[:, 0], flow_3.iloc[:, 0]]
+        ).reset_index(drop=True)
+
+        target = pd.concat(
+            [flow_1.iloc[:, 1], flow_2.iloc[:, 1], flow_3.iloc[:, 1]]
+        ).reset_index(drop=True)
+
+        volumn = pd.concat(
+            [flow_1.iloc[:, 2], flow_2.iloc[:, 2], flow_3.iloc[:, 2]]
+        ).reset_index(drop=True)
+
+        label_number = pd.concat(
+            [flow_1.iloc[:, 3], flow_2.iloc[:, 3], flow_3.iloc[:, 3]]
+        ).reset_index(drop=True)
+
+
+    elif flow_to_display == 2:
+        source = pd.concat(
+            [flow_1.iloc[:, 0], flow_2.iloc[:, 0]]
+        ).reset_index(drop=True)
+
+        target = pd.concat(
+            [flow_1.iloc[:, 1], flow_2.iloc[:, 1]]
+        ).reset_index(drop=True)
+
+        volumn = pd.concat(
+            [flow_1.iloc[:, 2], flow_2.iloc[:, 2]]
+        ).reset_index(drop=True)
+
+        label_number = pd.concat(
+            [flow_1.iloc[:, 3], flow_2.iloc[:, 3]]
+        ).reset_index(drop=True)
+
+        link_color = link_color[:-9]
+
+        node_color = node_color[:-3]
+
+
+    elif flow_to_display == 1:
+        source = flow_1.iloc[:, 0].reset_index(drop=True)
+
+        target = flow_1.iloc[:, 1].reset_index(drop=True)
+
+        volumn = flow_1.iloc[:, 2].reset_index(drop=True)
+
+        label_number = flow_1.iloc[:, 3].reset_index(drop=True)
+
+        link_color = link_color[:-15]
+
+        node_color = node_color[:-6]
+
+    else:
+        print("Unacceptable flow number, only 1-3 are accepted for now")
+
+    label = [
+        "The percentage that flows to target is "
+        + str(j)
+        + "% with the number of "
+        + str(i)
+        for i, j in zip(volumn, label_number)
     ]
 
     # Plotting
