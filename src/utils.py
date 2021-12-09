@@ -328,16 +328,16 @@ class RespiratoryTransformer(BaseEstimator, TransformerMixin):
                     severity_later_report.append(eval(k)[9:])
                     nan = -1  # See above
 
-            X["RIfrequency_earlier_report"] = pd.Series(
+            X["RIfrequency_earlier_12m"] = pd.Series(
                 frequency_earlier_report, index=X.index
             )
-            X["RIfrequency_later_report"] = pd.Series(
+            X["RIfrequency_later_36m"] = pd.Series(
                 frequency_later_report, index=X.index
             )
-            X["RIseverity_earlier_report"] = pd.Series(
+            X["RIseverity_earlier_12m"] = pd.Series(
                 severity_earlier_report, index=X.index
             )
-            X["RIseverity_later_report"] = pd.Series(
+            X["RIseverity_later_36m"] = pd.Series(
                 severity_later_report, index=X.index
             )
 
@@ -352,7 +352,7 @@ class RespiratoryTransformer(BaseEstimator, TransformerMixin):
             severity_later_report = []
 
             for i, j in zip(
-                    X["RIfrequency_earlier_report"], X["RIseverity_earlier_report"]
+                    X["RIfrequency_earlier_12m"], X["RIseverity_earlier_12m"]
             ):
                 if (
                         eval(str(i)).count("Unknown")
@@ -368,7 +368,7 @@ class RespiratoryTransformer(BaseEstimator, TransformerMixin):
                     )
 
             for i, j in zip(
-                    X["RIfrequency_later_report"], X["RIseverity_later_report"]
+                    X["RIfrequency_later_36m"], X["RIseverity_later_36m"]
             ):
                 if len(eval(str(i))) < self.minimal_value_presence:
                     frequency_later_report.append(np.nan)
@@ -382,27 +382,27 @@ class RespiratoryTransformer(BaseEstimator, TransformerMixin):
                     )
 
             # Replaced with processed data
-            #             X["RIfrequency_earlier_report"] = pd.Series(frequency_earlier_report)
-            #             X["RIseverity_earlier_report"] = pd.Series(severity_earlier_report)
-            #             X["RIfrequency_later_report"] = pd.Series(frequency_later_report)
-            #             X["RIseverity_later_report"] = pd.Series(severity_later_report)
+            #             X["RIfrequency_earlier_12m"] = pd.Series(frequency_earlier_report)
+            #             X["RIseverity_earlier_12m"] = pd.Series(severity_earlier_report)
+            #             X["RIfrequency_later_36m"] = pd.Series(frequency_later_report)
+            #             X["RIseverity_later_36m"] = pd.Series(severity_later_report)
 
-            X["RIfrequency_earlier_report"] = pd.Series(
+            X["RIfrequency_earlier_12m"] = pd.Series(
                 frequency_earlier_report, index=X.index
             )
-            X["RIfrequency_later_report"] = pd.Series(
+            X["RIfrequency_later_36m"] = pd.Series(
                 frequency_later_report, index=X.index
             )
-            X["RIseverity_earlier_report"] = pd.Series(
+            X["RIseverity_earlier_12m"] = pd.Series(
                 severity_earlier_report, index=X.index
             )
-            X["RIseverity_later_report"] = pd.Series(
+            X["RIseverity_later_36m"] = pd.Series(
                 severity_later_report, index=X.index
             )
 
             # The original SUB_CAT_RESP will be dropped and four new columns will be created
             print(
-                "The output columns will be: RIfrequency_earlier_report, RIseverity_earlier_report, RIfrequency_later_report, RIseverity_later_report"
+                "The output columns will be: RIfrequency_earlier_12m, RIseverity_earlier_12m, RIfrequency_later_36m, RIseverity_later_36m"
             )
 
             X.drop(

@@ -1,6 +1,6 @@
 __author__ = 'Stan He@Sickkids.ca'
 __contact__ = 'stan.he@sickkids.ca'
-__date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01', '2021-11-08', '2021-11-19']
+__date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01', '2021-11-08', '2021-11-19', '2021-12-08']
 
 """Gadgets for various tasks 
 """
@@ -41,8 +41,14 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     roc_auc_score,
-    plot_confusion_matrix
+    plot_confusion_matrix,
+    precision_recall_fscore_support,
 )
+
+from sklearn.metrics import (precision_recall_curve, PrecisionRecallDisplay)
+from sklearn.metrics import RocCurveDisplay, ConfusionMatrixDisplay
+
+
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.ensemble import RandomForestClassifier
@@ -251,6 +257,307 @@ def grouped_feature_generator(df):
 
     return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
 
+# grouped_feature_generator will be applied
+def features_four_timepoint(df):
+    _, features_all_timepoint, _, _ = grouped_feature_generator(df)
+    feature_fourtime_dict = {}
+    feature_fourtime_dict['at_birth_feature'] = features_all_timepoint["at_birth"]
+    feature_fourtime_dict['with_6m'] = features_all_timepoint["3m"] | features_all_timepoint["6m"] | {i for i in features_all_timepoint["1_9m_2hy"] if "_1m" in i}
+    feature_fourtime_dict['with_12m'] = features_all_timepoint["12m"] | {i for i in features_all_timepoint["1_9m_2hy"] if "_9m" in i}
+    feature_fourtime_dict['with_36m_all'] = (
+            features_all_timepoint["18m"]
+            | features_all_timepoint["24m"]
+            | features_all_timepoint["36m"]
+            | {i for i in features_all_timepoint["1_9m_2hy"] if ("_2hy" in i) | ("_30m" in i)}
+    )
+
+    feature_fourtime_dict['with_36m_exclude_diagnosis'] = feature_fourtime_dict['with_36m_all'] - {"Asthma_Diagnosis_3yCLA", "Triggered_Asthma_3yCLA", "Viral_Asthma_3yCLA"}
+
+    feature_fourtime_dict['all_four_exclude_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | feature_fourtime_dict['with_6m'] | feature_fourtime_dict['with_12m'] | feature_fourtime_dict['with_36m_exclude_diagnosis']
+    feature_fourtime_dict['all_four_include_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | feature_fourtime_dict['with_6m'] | feature_fourtime_dict['with_12m'] | feature_fourtime_dict['with_36m_all']
+
+    print(f"The available keys are {feature_fourtime_dict.keys()}")
+
+    return feature_fourtime_dict
+
+# Final Model Performance - Holdout Result View
+def model_result_holdout(
+    df_train_eval,
+    df_holdout,
+    feature_columns_selected,
+    target_name,
+    random_state_for_eval_split=123,
+    eval_positive_number=30,
+    eval_negative_number=150,
+    train_eval_separation_to_fit=False,
+    estimator=LogisticRegression(class_weight="balanced"),
+    scalar=MinMaxScaler(),
+):
+    """
+    Perform model performance test on holdout dataset with trained model with given feature columns. Dataframe
+    need to be scaled first - transformed with the previously fitted scalar.
+    X_holdout, y_holdout will be determined using feature_columns and target
+    :param df_train_eval: train_evaluation dataset that has been engineered and imputed
+    :param df_holdout: holdout dataset that has been engineered and imputed
+    :param feature_columns_selected: array-like
+    :param target_name: str
+    :param random_state_for_eval_split=123,
+    :param eval_positive_number=30,
+    :param eval_negative_number=150,
+    :param train_eval_separation_to_fit: boolean
+    :param estimator: classifier to be tested
+    :param scalar: scalar to be selected
+    :return: dictionary containing information for y_true_holdout, y_predicted_holdout, y_probability_holdout
+    """
+    # Reset index to start from 0
+    df_train_eval.reset_index(drop=True, inplace=True)
+    df_holdout.reset_index(drop=True, inplace=True)
+
+    # Fit the model with only the train data during feature selection
+    # If train_eval_separation_for_train == True,  random_state_for_eval_split, eval_positive_number=30,
+    # eval_negative_number=150
+    if train_eval_separation_to_fit:
+        eval_positive_index = np.random.RandomState(
+            random_state_for_eval_split
+        ).permutation(df_train_eval[df_train_eval[target_name] == 1].index)[
+            :eval_positive_number
+        ]
+        eval_negative_index = np.random.RandomState(
+            random_state_for_eval_split
+        ).permutation(df_train_eval[df_train_eval[target_name] == 0].index)[
+            :eval_negative_number
+        ]
+
+        eval_index = set(list(eval_positive_index) + list(eval_negative_index))
+        whole_index = set(df_train_eval.index)
+
+        X_fit = df_train_eval[feature_columns_selected].loc[whole_index - eval_index]
+        y_fit = df_train_eval[target_name].loc[whole_index - eval_index]
+
+    else:
+        X_fit = df_train_eval[feature_columns_selected]
+        y_fit = df_train_eval[target_name]
+
+    X_holdout = df_holdout[feature_columns_selected]
+    y_holdout = df_holdout[target_name]
+
+    # Scale first before fit the model
+    # For the reproducibility of the result of feature selection and stratified multiple cross-validation,
+    # we fit the entire train_eval subset for scalar
+    scalar.fit(df_train_eval[feature_columns_selected])
+    # scalar.fit(X_fit)
+
+    X_fit = pd.DataFrame(
+        scalar.transform(X_fit), columns=X_fit.columns, index=X_fit.index
+    )
+    X_holdout = pd.DataFrame(
+        scalar.transform(X_holdout), columns=X_holdout.columns, index=X_holdout.index
+    )
+
+    # Train the model
+    estimator.fit(X_fit, y_fit)
+
+    # Fill the result to be returned
+    holdout_result = {}
+    holdout_result["y_true_holdout"] = y_holdout
+    holdout_result["y_predicted_holdout"] = estimator.predict(X_holdout)
+    holdout_result["y_predicted_prob_holdout"] = estimator.predict_proba(X_holdout)
+    holdout_result["precision_recall_f1_support"] = np.array(
+        precision_recall_fscore_support(
+            y_holdout, holdout_result["y_predicted_holdout"], labels=[0, 1]
+        )
+    )
+    holdout_result["average_precision_score"] = average_precision_score(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    holdout_result["roc_auc_score"] = roc_auc_score(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    holdout_result["precision_recall_threshold"] = precision_recall_curve(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    p, r, threshold = precision_recall_curve(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    f_score = 2 * (p * r) / (p + r)
+    holdout_result["highest_f1_and_threshold"] = (
+        f_score[f_score.argsort()[-1]],
+        threshold[f_score.argsort()[-1]],
+    )
+    holdout_result["y_predicted_holdout_altered_threshold"] = np.where(
+        holdout_result["y_predicted_prob_holdout"][:, 1]
+        >= threshold[f_score.argsort()[-1]],
+        1,
+        0,
+    )
+
+    # Print out result
+    print(classification_report(y_holdout, holdout_result["y_predicted_holdout"]))
+
+    # Plotting
+    display = PrecisionRecallDisplay.from_predictions(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    _ = display.ax_.set_title(f"{estimator}")
+
+    display = RocCurveDisplay.from_predictions(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    _ = display.ax_.set_title(f"{estimator}")
+    plt.plot([0, 1], [0, 1], color="red", lw=2, linestyle="--")
+
+    display = ConfusionMatrixDisplay.from_predictions(
+        y_holdout, holdout_result["y_predicted_holdout"]
+    )
+    _ = display.ax_.set_title(f"{estimator}")
+
+    return holdout_result
+
+
+
+# View the highest performed features for various machine learning models
+def ml_feature_selection(
+    X,
+    y,
+    scalar=MinMaxScaler(),
+    cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
+    priori_k=25,
+    scoring="average_precision",
+    is_floating=True,
+    fixed_features=None,
+    precision_inspection_range=0.02,
+    test_model_number=None
+):
+    """
+    Generate feature subset performance dataframe for minimal feature selection.
+    ***Note: For Cross-validation, the index should be reset to default (0 to sample size-1) before cv can be put to use.
+
+    :param X: feature matrix of train, evaluation with target variable dropped
+    :param y: target label
+    :param cv: PredefinedHoldoutSplit using test_index, and StratifiedKFold for multiple validation for feature selection
+    :param priori_k: the number of feature to include for feature subset selection
+    :param scoring: what metrics to use for feature selection
+    :param is_floating: allow retrospective inspection for each added feature
+    :param fixed_features: any feature to include persistently based on interest
+    :param precision_inspection_range: allow minor difference of performance to check the minimal subset of features
+    :param test_model_number: number of estimators to try (quicker stop)
+    :return: birth_fs_df, birth_features_frequency, res_dict
+    """
+
+    # Untuned Estimator to obtain features with maximal performance
+    svc = SVC(class_weight="balanced")
+    knn = KNeighborsClassifier(n_neighbors=5)
+    lr = LogisticRegression(class_weight="balanced")
+    rf = RandomForestClassifier(class_weight="balanced",random_state=2021)
+    xgb = XGBClassifier(class_weight="balanced")
+    dt = DecisionTreeClassifier(
+        criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
+    )
+
+    # Scale of X
+    X = pd.DataFrame(scalar.fit_transform(X), columns=X.columns, index=X.index)
+
+    # Records all the result
+    res_dict = {}
+    for model, model_name in zip(
+        [lr, rf, dt, knn, xgb,  svc][:test_model_number], ["lr", "rf", "dt", "knn", "xgb",  "svc"][:test_model_number]
+    ):
+        print(
+            "Current classifier where feature selection is being tested is:", model_name
+        )
+        sfs = SFS(
+            model,
+            k_features=priori_k,
+            forward=True,
+            floating=is_floating,
+            verbose=2,
+            scoring=scoring,
+            cv=cv,
+            fixed_features=fixed_features,
+        )
+
+        sfs = sfs.fit(X, y)
+
+        res_dict[model_name] = pd.DataFrame.from_dict(
+            sfs.get_metric_dict()
+        ).T.sort_values(by="avg_score", ascending=False)
+
+    # Extract only the best performed subset
+    birth_fs_df = pd.DataFrame()
+    for i, j in zip(res_dict.values(), res_dict.keys()):
+        # Add more features to model feature inspection dataframe
+        i["clf"] = j
+        i["number_of_features"] = i["feature_idx"].apply(len)
+
+        rank = 1
+        rank_list = []
+        highest_number = i["avg_score"].iloc[0]
+
+        # Calculate the ranking according to precision inspection range
+        for score in i["avg_score"]:
+            if score >= highest_number - precision_inspection_range:
+                rank_list.append(rank)
+            else:
+                highest_number = score
+                rank = rank + 1
+                rank_list.append(rank)
+
+        # Retrieve the minimal feature of the precision rank - top rank is 1
+        i["feature_precision_rank"] = rank_list
+
+        # Rank 1-N: "1" represent highest precision, sorted by ascending order
+        # Number of features: sorted by ascending order as we are more interested in the minimal number of subset
+        # Avg_score: sorted by descending order as we would like to keep the highest number in the top
+        i.sort_values(
+            by=["feature_precision_rank", "number_of_features", "avg_score"],
+            ascending=[True, True, False],
+            inplace=True,
+        )
+
+        # Add top row of features performance for each estimator to create a new dataframe
+        birth_fs_df = birth_fs_df.append(i[:1], ignore_index=True)
+
+    # After birth fs is created, sort first by 'avg_score'
+    birth_fs_df = birth_fs_df.sort_values(by="avg_score", ascending=False).reset_index(
+        drop=True
+    )
+
+    # Recreate the feature precision rank for the entire selected cohorts of models
+    rank = 1
+    rank_list = []
+    highest_number = birth_fs_df["avg_score"].iloc[0]
+
+    for score in birth_fs_df["avg_score"]:
+        if score >= highest_number - precision_inspection_range:
+            rank_list.append(rank)
+        else:
+            highest_number = score
+            rank = rank + 1
+            rank_list.append(rank)
+
+    # Retrieve the minimal feature of the precision rank - top rank is 1
+    birth_fs_df["feature_precision_rank"] = rank_list
+
+    # The minimal number of features for rank 1
+    birth_fs_df.sort_values(
+        by=["feature_precision_rank", "number_of_features", "avg_score"],
+        ascending=[True, True, False],
+        inplace=True,
+    )
+
+    # k to create feature repetition frequency for different models
+    k = []
+    for i in [list(i) for i in birth_fs_df["feature_names"].values]:
+        k = k + i
+
+    # Keep record of the feature repetition times
+    birth_features_frequency = pd.DataFrame(
+        {i: k.count(i) for i in set(k)}, index=["Frequency"]
+    ).T.sort_values(by="Frequency", ascending=False)
+
+    return birth_fs_df, birth_features_frequency, res_dict
+
+
 
 # Extract index_number from raw dataset for all further modelling, training, evaluation, and holdout testing
 def df_holdout_throughout(
@@ -359,7 +666,7 @@ def df_holdout_throughout(
 
     return df_child_ml, rest_index, holdout_index
 
-#Identify the minimal features that generate highest performance.
+#Identify the minimal features that generate highest performance using self-defined strategies.
 def df_minimal_features(
         df,
         train_index,
@@ -1785,144 +2092,6 @@ def df_simpleimputer_scaled(df):
     df_new = pd.concat([df_new, df["y"]], axis=1)
     return df_new
 
-
-# View the highest performed features for various machine learning models
-def ml_feature_selection(
-    X,
-    y,
-    cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
-    priori_k=25,
-    scoring="average_precision",
-    is_floating=True,
-    fixed_features=None,
-    precision_inspection_range=0.02,
-    test_model_number=None
-):
-    """
-    Generate feature subset performance dataframe for minimal feature selection.
-    ***Note: For Cross-validation, the index should be reset to default (0 to sample size-1) before cv can be put to use.
-
-    :param X: feature matrix of train, evaluation with target variable dropped
-    :param y: target label
-    :param cv: PredefinedHoldoutSplit using test_index, and StratifiedKFold for multiple validation for feature selection
-    :param priori_k: the number of feature to include for feature subset selection
-    :param scoring: what metrics to use for feature selection
-    :param is_floating: allow retrospective inspection for each added feature
-    :param fixed_features: any feature to include persistently based on interest
-    :param precision_inspection_range: allow minor difference of performance to check the minimal subset of features
-    :param test_model_number: number of estimators to try (quicker stop)
-    :return: birth_fs_df, birth_features_frequency, res_dict
-    """
-
-    # Untuned Estimator to obtain features with maximal performance
-    svc = SVC(class_weight="balanced")
-    knn = KNeighborsClassifier(n_neighbors=5)
-    lr = LogisticRegression(class_weight="balanced")
-    rf = RandomForestClassifier(class_weight="balanced",random_state=2021)
-    xgb = XGBClassifier(class_weight="balanced")
-    dt = DecisionTreeClassifier(
-        criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
-    )
-
-    # Records all the result
-    res_dict = {}
-    for model, model_name in zip(
-        [lr, rf, dt, knn, xgb,  svc][:test_model_number], ["lr", "rf", "dt", "knn", "xgb",  "svc"][:test_model_number]
-    ):
-        print(
-            "Current classifier where feature selection is being tested is:", model_name
-        )
-        sfs = SFS(
-            model,
-            k_features=priori_k,
-            forward=True,
-            floating=is_floating,
-            verbose=2,
-            scoring=scoring,
-            cv=cv,
-            fixed_features=fixed_features,
-        )
-
-        sfs = sfs.fit(X, y)
-
-        res_dict[model_name] = pd.DataFrame.from_dict(
-            sfs.get_metric_dict()
-        ).T.sort_values(by="avg_score", ascending=False)
-
-    # Extract only the best performed subset
-    birth_fs_df = pd.DataFrame()
-    for i, j in zip(res_dict.values(), res_dict.keys()):
-        # Add more features to model feature inspection dataframe
-        i["clf"] = j
-        i["number_of_features"] = i["feature_idx"].apply(len)
-
-        rank = 1
-        rank_list = []
-        highest_number = i["avg_score"].iloc[0]
-
-        # Calculate the ranking according to precision inspection range
-        for score in i["avg_score"]:
-            if score >= highest_number - precision_inspection_range:
-                rank_list.append(rank)
-            else:
-                highest_number = score
-                rank = rank + 1
-                rank_list.append(rank)
-
-        # Retrieve the minimal feature of the precision rank - top rank is 1
-        i["feature_precision_rank"] = rank_list
-
-        # Rank 1-N: "1" represent highest precision, sorted by ascending order
-        # Number of features: sorted by ascending order as we are more interested in the minimal number of subset
-        # Avg_score: sorted by descending order as we would like to keep the highest number in the top
-        i.sort_values(
-            by=["feature_precision_rank", "number_of_features", "avg_score"],
-            ascending=[True, True, False],
-            inplace=True,
-        )
-
-        # Add top row of features performance for each estimator to create a new dataframe
-        birth_fs_df = birth_fs_df.append(i[:1], ignore_index=True)
-
-    # After birth fs is created, sort first by 'avg_score'
-    birth_fs_df = birth_fs_df.sort_values(by="avg_score", ascending=False).reset_index(
-        drop=True
-    )
-
-    # Recreate the feature precision rank for the entire selected cohorts of models
-    rank = 1
-    rank_list = []
-    highest_number = birth_fs_df["avg_score"].iloc[0]
-
-    for score in birth_fs_df["avg_score"]:
-        if score >= highest_number - precision_inspection_range:
-            rank_list.append(rank)
-        else:
-            highest_number = score
-            rank = rank + 1
-            rank_list.append(rank)
-
-    # Retrieve the minimal feature of the precision rank - top rank is 1
-    birth_fs_df["feature_precision_rank"] = rank_list
-
-    # The minimal number of features for rank 1
-    birth_fs_df.sort_values(
-        by=["feature_precision_rank", "number_of_features", "avg_score"],
-        ascending=[True, True, False],
-        inplace=True,
-    )
-
-    # k to create feature repetition frequency for different models
-    k = []
-    for i in [list(i) for i in birth_fs_df["feature_names"].values]:
-        k = k + i
-
-    # Keep record of the feature repetition times
-    birth_features_frequency = pd.DataFrame(
-        {i: k.count(i) for i in set(k)}, index=["Frequency"]
-    ).T.sort_values(by="Frequency", ascending=False)
-
-    return birth_fs_df, birth_features_frequency, res_dict
 
 # Perform statistical testing of all existing features using Chi-square and T-test for two populations (asthma,
 # no asthma)

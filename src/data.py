@@ -285,8 +285,8 @@ def feature_selection(data_path='../data/'):
                                     'psssumr_24m': 'PSS_24m', 'csedsumr_24m': 'CSED_24m'}
 
     features_of_antibiotic = data_path + 'antibiotics first year of life.xlsx'
-    variables_of_antibiotic = {'subjectnumber': 'Subject_Number', 'atbx_n': 'Number_of_AntibioticsCourse',
-                               'atbx_time': 'Time_of_AntibioticsUsage', 'atbx': 'Antibiotics_Usage'}
+    variables_of_antibiotic = {'subjectnumber': 'Subject_Number', 'atbx_n': 'Number_of_AntibioticsCourse_12m',
+                               'atbx_time': 'Time_of_AntibioticsUsage_12m', 'atbx': 'Antibiotics_Usage_12m'}
 
     features_of_smoke = data_path + 'Prenatal smoke exposure.xlsx'
     variables_of_smoke = {'Subjectnumber': 'Subject_Number', 'prenatal_second_hand': 'Smoke_Prenatal_Secondhand',
@@ -418,8 +418,8 @@ def data_mapping(merged_df=None):
                           'F10min_No_Measure_Needed']
 
     # Antibiotics - all nan in Time and Number of Usage strictly corresponding to 0 Antibiotics_Usage
-    df_mapping[['Number_of_AntibioticsCourse', 'Time_of_AntibioticsUsage', 'Antibiotics_Usage']] = df_mapping[
-        ['Number_of_AntibioticsCourse', 'Time_of_AntibioticsUsage', 'Antibiotics_Usage']].fillna(0)
+    df_mapping[['Number_of_AntibioticsCourse_12m', 'Time_of_AntibioticsUsage_12m', 'Antibiotics_Usage_12m']] = df_mapping[
+        ['Number_of_AntibioticsCourse_12m', 'Time_of_AntibioticsUsage_12m', 'Antibiotics_Usage_12m']].fillna(0)
 
     # Anthropometrics
     anthrop_cleaned_columns = ['Gest_Days', 'Weight_0m', 'Weight_3m', 'Weight_12m', 'Weight_36m',
