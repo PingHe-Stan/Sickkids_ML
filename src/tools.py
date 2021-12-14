@@ -257,6 +257,7 @@ def grouped_feature_generator(df):
 
     return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
 
+
 # grouped_feature_generator will be applied
 def features_four_timepoint(df):
     _, features_all_timepoint, _, _ = grouped_feature_generator(df)
@@ -279,6 +280,7 @@ def features_four_timepoint(df):
     print(f"The available keys are {feature_fourtime_dict.keys()}")
 
     return feature_fourtime_dict
+
 
 # Final Model Performance - Holdout Result View
 def model_result_holdout(
@@ -411,8 +413,7 @@ def model_result_holdout(
     )
     _ = display.ax_.set_title(f"{estimator}")
 
-    return holdout_result
-
+    return holdout_result, estimator
 
 
 # View the highest performed features for various machine learning models
@@ -557,8 +558,6 @@ def ml_feature_selection(
 
     return birth_fs_df, birth_features_frequency, res_dict
 
-
-
 # Extract index_number from raw dataset for all further modelling, training, evaluation, and holdout testing
 def df_holdout_throughout(
     df_child,
@@ -665,6 +664,7 @@ def df_holdout_throughout(
     )
 
     return df_child_ml, rest_index, holdout_index
+
 
 #Identify the minimal features that generate highest performance using self-defined strategies.
 def df_minimal_features(
@@ -1769,8 +1769,15 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
 
 
 # An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
+# An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
 def df_ml_run(
-        X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_scoring="f1"
+        df_train_eval,
+        df_holdout,
+        feature_columns,
+        target_name,
+        scalar=MinMaxScaler(),
+        scoring_func=average_precision_score,
+        importance_scoring="average_precision",
 ):
     """
     Fast run of a myriad of models and return three very informative dataframes (confusion matrix dataframe,  model performance dataframe
@@ -1781,7 +1788,7 @@ def df_ml_run(
         since it must have the same name of sklearn.metrics functions
 
     :param importance_scoring: string, default: f1
-        importance_scoring has to be one of 'accuracy', 'f1', 'precision', 'recall', 'roc_auc',
+        importance_scoring has to be one of 'accuracy', 'f1', 'precision', 'recall', 'roc_auc',"average_precision"
         since it must be recognizable as a parameter to be put into permutation importance
 
     :return: Confusion matrix dataframe, model performance, feature importance
@@ -1790,6 +1797,26 @@ def df_ml_run(
     Examples:
     ml_result_tuple = df_ml_run(X_train, X_test, y_train, y_test)
     """
+    # Reset index to start from 0
+    df_train_eval.reset_index(drop=True, inplace=True)
+    df_holdout.reset_index(drop=True, inplace=True)
+
+    # Generate trainable dataset and corresponding test dataset
+    X_train = df_train_eval[feature_columns]
+    y_train = df_train_eval[target_name]
+    X_test = df_holdout[feature_columns]
+    y_test = df_holdout[target_name]
+
+    scalar.fit(X_train)
+
+    X_train = pd.DataFrame(
+        scalar.transform(X_train), columns=X_train.columns, index=X_train.index
+    )
+
+    X_test = pd.DataFrame(
+        scalar.transform(X_test), columns=X_test.columns, index=X_test.index
+    )
+
     # A dictionary that will store the performance score of models to evaluate feature importance
     model_score = {}
 
@@ -1800,13 +1827,22 @@ def df_ml_run(
     model_feature = {}
 
     # Initializing the model using desired abbreviated names as model instance to train and test
-    xgb = XGBClassifier(learning_rate=0.01, n_estimators=250)
-    dt = DecisionTreeClassifier(criterion="entropy", random_state=0, max_depth=6)
-    rf = RandomForestClassifier(n_estimators=200, random_state=0, max_depth=5)
-    knn = KNeighborsClassifier(n_neighbors=5)
-    svc = SVC(kernel="rbf", C=6)
+
+    # xgb = XGBClassifier(learning_rate=0.01, n_estimators=250)
+    # dt = DecisionTreeClassifier(criterion="entropy", random_state=0, max_depth=6)
+    # rf = RandomForestClassifier(n_estimators=200, random_state=0, max_depth=5)
+    # knn = KNeighborsClassifier(n_neighbors=5)
+    # svc = SVC(kernel="rbf", C=6)
+    # lr = LogisticRegression()
     nb = GaussianNB()
-    lr = LogisticRegression()
+    svc = SVC(class_weight="balanced", probability=True)
+    knn = KNeighborsClassifier(n_neighbors=5)
+    lr = LogisticRegression(class_weight="balanced")
+    rf = RandomForestClassifier(class_weight="balanced", random_state=0)
+    xgb = XGBClassifier(class_weight="balanced")
+    dt = DecisionTreeClassifier(
+        criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
+    )
 
     # A dictionary that stores the full name of model
     model_name = {
@@ -1835,7 +1871,13 @@ def df_ml_run(
         predicted = model.predict(X_test)
 
         # Store result
-        model_score[key] = scoring_func(y_test, predicted)
+        if (importance_scoring == "average_precision") or (
+                importance_scoring == "roc_auc"
+        ):
+            model_score[key] = scoring_func(y_test, model.predict_proba(X_test)[:, 1])
+        else:
+            model_score[key] = scoring_func(y_test, predicted)
+
         model_cm[key] = str(
             {
                 k: dict(v)
@@ -1852,7 +1894,7 @@ def df_ml_run(
         print(f"confussion matrix: {confusion_matrix(y_test, predicted)}\n")
         plot_confusion_matrix(model, X_test, y_test)
         print(
-            f"The performance score of {model_name[key]}: {model_score[key] * 100} \n"
+            f"The {importance_scoring} score of {model_name[key]}: {model_score[key] * 100} \n"
         )
         print(classification_report(y_test, predicted))
 
@@ -1937,23 +1979,93 @@ def df_ml_run(
         "Extreme Gradient Boost",
     ]
     measurements = [
-        accuracy_score,
-        f1_score,
         precision_score,
         recall_score,
+        f1_score,
+        average_precision_score,
         roc_auc_score,
+        accuracy_score,
     ]
-    measurement_names = ["Accuracy", "F1 score", "Precision", "Recall", "AUC"]
+    measurement_names = [
+        "Precision",
+        "Recall",
+        "F1",
+        "Average_precision",
+        "Roc_auc",
+        "Accuracy",
+    ]
     for i in range(len(models)):
         score_dict["Model"].append(models_label[i])
         for j in range(len(measurements)):
-            score_dict[measurement_names[j]].append(
-                measurements[j](y_test, models[i].predict(X_test))
-            )
+            if "_" in measurement_names[j]:
+                score_dict[measurement_names[j]].append(
+                    measurements[j](y_test, models[i].predict_proba(X_test)[:, 1])
+                )
+            else:
+                score_dict[measurement_names[j]].append(
+                    measurements[j](y_test, models[i].predict(X_test))
+                )
+
     score_df = pd.DataFrame(score_dict).set_index("Model")
 
-    #    model_score_returned = score_df.style.background_gradient(cmap="Greens")
-    model_score_returned = score_df
+    # Extract highest performing scoring
+    score_dict_highest = defaultdict(list)
+    models = [lr, nb, rf, knn, dt, svc, xgb]
+    models_label = [
+        "Logistic Regression",
+        "Naive Bayes",
+        "Random Forest",
+        "K-Nearest Neighbours",
+        "Decision Tree",
+        "Support Vector Machine",
+        "Extreme Gradient Boost",
+    ]
+    measurements = [
+        precision_score,
+        recall_score,
+        f1_score,
+        average_precision_score,
+        roc_auc_score,
+        accuracy_score,
+        "threshold_positioner",
+    ]
+    measurement_names = [
+        "Precision",
+        "Recall",
+        "F1",
+        "Average_precision",
+        "Roc_auc",
+        "Accuracy",
+        "Threshold",
+    ]
+    for i in range(len(models)):
+        score_dict_highest["Model"].append(models_label[i])
+
+        # Retrieve Threshold and altered Prediction for the calculation of F1, Precision, Recall and Accuracy
+        predicted_proba = models[i].predict_proba(X_test)[:, 1]
+        p, r, threshold = precision_recall_curve(y_test, predicted_proba)
+        f_score = 2 * (p * r) / (p + r)
+        predicted_highest = np.where(
+            predicted_proba >= threshold[f_score.argsort()[-1]], 1, 0
+        )
+        threshold_for_highest = round(threshold[f_score.argsort()[-1]], 2)
+
+        for j in range(len(measurements)):
+            if measurement_names[j] == "Threshold":
+                score_dict_highest[measurement_names[j]].append(
+                    threshold[f_score.argsort()[-1]]
+                )
+            elif "_" in measurement_names[j]:
+                score_dict_highest[measurement_names[j]].append(
+                    measurements[j](y_test, predicted_proba)
+                )
+            else:
+                score_dict_highest[measurement_names[j]].append(
+                    measurements[j](y_test, predicted_highest)
+                )
+
+    score_dict_highest = pd.DataFrame(score_dict_highest).set_index("Model")
+
     # 3. Create feature importance table for various predictors
 
     # Prepare naming of models
@@ -2000,7 +2112,7 @@ def df_ml_run(
         index_name.append(model_name[i])
     model_cm_df.index = index_name
 
-    return model_score_returned, feature_res_returned, model_cm_df, dt
+    return score_df, score_dict_highest, feature_res_returned, model_cm_df, dt
 
 
 # Given df, X, y holdout, train, test split will be gained
