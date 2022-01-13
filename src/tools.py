@@ -1,6 +1,8 @@
 __author__ = 'Stan He@Sickkids.ca'
 __contact__ = 'stan.he@sickkids.ca'
-__date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01', '2021-11-08', '2021-11-19', '2021-12-08']
+__date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
+            '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
+            '2022-01-12']
 
 """Gadgets for various tasks 
 """
@@ -31,6 +33,7 @@ from imblearn.over_sampling import RandomOverSampler
 # ML Libraries
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import (
     confusion_matrix,
     accuracy_score,
@@ -48,7 +51,6 @@ from sklearn.metrics import (
 from sklearn.metrics import (precision_recall_curve, PrecisionRecallDisplay)
 from sklearn.metrics import RocCurveDisplay, ConfusionMatrixDisplay
 
-
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.ensemble import RandomForestClassifier
@@ -61,6 +63,12 @@ from sklearn.inspection import permutation_importance
 from sklearn.model_selection import PredefinedSplit, StratifiedKFold, LeaveOneOut
 from mlxtend.evaluate import PredefinedHoldoutSplit
 from mlxtend.feature_selection import SequentialFeatureSelector as SFS
+
+#TODO: (1) Strategy 1: Manually Selected Feature Set Result with GridSearchCV paramters for each time points - Multiple Model Predictivity + Weighted Feature Importance with the same set of features
+#TODO: (2) Strategy 2: Automated Feature Selection for each Specific Estimator throughout - Singular Model Predictivity + Feature Importance
+#TODO: (3) 3.9 Visualization of Model Predictivity at multiple time points for f1 variation (Recall & Precision of Asthmatic) for each ML types - based on (2)
+#TODO: (4) 3.10 Visualization of a combined heatmap for feature importance at multiple time points table for each model or using a selection of valid models - good performing models
+#TODO: -----Ensembling for better model----
 
 
 # Load more variables to existing xlsx
@@ -263,8 +271,12 @@ def features_four_timepoint(df):
     _, features_all_timepoint, _, _ = grouped_feature_generator(df)
     feature_fourtime_dict = {}
     feature_fourtime_dict['at_birth_feature'] = features_all_timepoint["at_birth"]
-    feature_fourtime_dict['with_6m'] = features_all_timepoint["3m"] | features_all_timepoint["6m"] | {i for i in features_all_timepoint["1_9m_2hy"] if "_1m" in i}
-    feature_fourtime_dict['with_12m'] = features_all_timepoint["12m"] | {i for i in features_all_timepoint["1_9m_2hy"] if "_9m" in i}
+    feature_fourtime_dict['with_6m'] = features_all_timepoint["3m"] | features_all_timepoint["6m"] | {i for i in
+                                                                                                      features_all_timepoint[
+                                                                                                          "1_9m_2hy"] if
+                                                                                                      "_1m" in i}
+    feature_fourtime_dict['with_12m'] = features_all_timepoint["12m"] | {i for i in features_all_timepoint["1_9m_2hy"]
+                                                                         if "_9m" in i}
     feature_fourtime_dict['with_36m_all'] = (
             features_all_timepoint["18m"]
             | features_all_timepoint["24m"]
@@ -272,162 +284,787 @@ def features_four_timepoint(df):
             | {i for i in features_all_timepoint["1_9m_2hy"] if ("_2hy" in i) | ("_30m" in i)}
     )
 
-    feature_fourtime_dict['with_36m_exclude_diagnosis'] = feature_fourtime_dict['with_36m_all'] - {"Asthma_Diagnosis_3yCLA", "Triggered_Asthma_3yCLA", "Viral_Asthma_3yCLA"}
+    feature_fourtime_dict['with_36m_exclude_diagnosis'] = feature_fourtime_dict['with_36m_all'] - {
+        "Asthma_Diagnosis_3yCLA", "Triggered_Asthma_3yCLA", "Viral_Asthma_3yCLA"}
 
-    feature_fourtime_dict['all_four_exclude_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | feature_fourtime_dict['with_6m'] | feature_fourtime_dict['with_12m'] | feature_fourtime_dict['with_36m_exclude_diagnosis']
-    feature_fourtime_dict['all_four_include_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | feature_fourtime_dict['with_6m'] | feature_fourtime_dict['with_12m'] | feature_fourtime_dict['with_36m_all']
+    feature_fourtime_dict['all_four_exclude_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
+                                                            feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
+                                                                'with_12m'] | feature_fourtime_dict[
+                                                                'with_36m_exclude_diagnosis']
+    feature_fourtime_dict['all_four_include_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
+                                                            feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
+                                                                'with_12m'] | feature_fourtime_dict['with_36m_all']
 
     print(f"The available keys are {feature_fourtime_dict.keys()}")
 
     return feature_fourtime_dict
 
 
-# Final Model Performance - Holdout Result View
-def model_result_holdout(
-    df_train_eval,
-    df_holdout,
-    feature_columns_selected,
-    target_name,
-    random_state_for_eval_split=123,
-    eval_positive_number=30,
-    eval_negative_number=150,
-    train_eval_separation_to_fit=False,
-    estimator=LogisticRegression(class_weight="balanced"),
-    scalar=MinMaxScaler(),
+# Extract index_number from raw dataset for all further modelling, training, evaluation, and holdout testing
+def df_holdout_throughout(
+        df_child,
+        include_dust=False,
+        treat_possible_as_3yCLA={2: 1},
+        # treat_possible_as --- Only happen when include_dust is TRUE,
+        # Persistent Number will be perserved if 3yCLA possible is treated as 1 for our algorithm
+        treat_possible_as_5yCLA={2: np.nan},  # Possible will be dropped for modelling
+        holdout_random_state=100,
+        ingredient_persist=15,
+        ingredient_transient=5,
+        ingredient_emerged=5,
+        ingredient_no_asthma=110,
 ):
-    """
-    Perform model performance test on holdout dataset with trained model with given feature columns. Dataframe
-    need to be scaled first - transformed with the previously fitted scalar.
-    X_holdout, y_holdout will be determined using feature_columns and target
-    :param df_train_eval: train_evaluation dataset that has been engineered and imputed
-    :param df_holdout: holdout dataset that has been engineered and imputed
-    :param feature_columns_selected: array-like
-    :param target_name: str
-    :param random_state_for_eval_split=123,
-    :param eval_positive_number=30,
-    :param eval_negative_number=150,
-    :param train_eval_separation_to_fit: boolean
-    :param estimator: classifier to be tested
-    :param scalar: scalar to be selected
-    :return: dictionary containing information for y_true_holdout, y_predicted_holdout, y_probability_holdout
-    """
-    # Reset index to start from 0
-    df_train_eval.reset_index(drop=True, inplace=True)
-    df_holdout.reset_index(drop=True, inplace=True)
+    # Display the sample number change
+    print("The original sample dimension is", df_child.shape)
 
-    # Fit the model with only the train data during feature selection
-    # If train_eval_separation_for_train == True,  random_state_for_eval_split, eval_positive_number=30,
-    # eval_negative_number=150
-    if train_eval_separation_to_fit:
-        eval_positive_index = np.random.RandomState(
-            random_state_for_eval_split
-        ).permutation(df_train_eval[df_train_eval[target_name] == 1].index)[
-            :eval_positive_number
-        ]
-        eval_negative_index = np.random.RandomState(
-            random_state_for_eval_split
-        ).permutation(df_train_eval[df_train_eval[target_name] == 0].index)[
-            :eval_negative_number
-        ]
+    df_child_ml = df_child[
+        (df_child.Asthma_Diagnosis_3yCLA.notna())
+        & (df_child.Asthma_Diagnosis_5yCLA.notna())
+        ].copy()
 
-        eval_index = set(list(eval_positive_index) + list(eval_negative_index))
-        whole_index = set(df_train_eval.index)
+    print(
+        "The sample dimension with both 3y and 5y clinical assessment is",
+        df_child_ml.shape,
+    )
 
-        X_fit = df_train_eval[feature_columns_selected].loc[whole_index - eval_index]
-        y_fit = df_train_eval[target_name].loc[whole_index - eval_index]
+    # Retrieve dust samples
+    dust_column_names = df_child_ml.columns[
+        df_child_ml.columns.str.contains("Home_.*P_3m")
+    ]
 
+    if include_dust:
+        # Treat possible diagnosis
+        df_child_ml["Asthma_Diagnosis_3yCLA"] = df_child_ml[
+            "Asthma_Diagnosis_3yCLA"
+        ].replace(treat_possible_as_3yCLA)
+        df_child_ml["Asthma_Diagnosis_5yCLA"] = df_child_ml[
+            "Asthma_Diagnosis_5yCLA"
+        ].replace(treat_possible_as_5yCLA)
+
+        df_child_ml = df_child_ml[
+            (df_child_ml.Asthma_Diagnosis_3yCLA.notna())
+            & (df_child_ml.Asthma_Diagnosis_5yCLA.notna())
+            ].copy()
+
+        print(
+            "The sample dimension with both 3y and 5y clinical assessment after possible is treated is",
+            df_child_ml.shape,
+        )
+
+        df_child_ml = df_child_ml.dropna(axis="index", subset=dust_column_names)
+        print("The sample dimension with dust sample data is", df_child_ml.shape)
     else:
-        X_fit = df_train_eval[feature_columns_selected]
-        y_fit = df_train_eval[target_name]
+        print("The removed dust columns are", dust_column_names)
+        df_child_ml = df_child_ml.drop(columns=dust_column_names)
+        print("The sample dimension without dust sample data is", df_child_ml.shape)
 
-    X_holdout = df_holdout[feature_columns_selected]
-    y_holdout = df_holdout[target_name]
+    # Group division
+    no_asthma = df_child_ml[
+        (df_child_ml.Asthma_Diagnosis_5yCLA == 0)
+        & (df_child_ml.Asthma_Diagnosis_3yCLA == 0)
+        ]
 
-    # Scale first before fit the model
-    # For the reproducibility of the result of feature selection and stratified multiple cross-validation,
-    # we fit the entire train_eval subset for scalar
-    scalar.fit(df_train_eval[feature_columns_selected])
-    # scalar.fit(X_fit)
+    print("The size of no asthma subject group is:", no_asthma.shape[0])
 
-    X_fit = pd.DataFrame(
-        scalar.transform(X_fit), columns=X_fit.columns, index=X_fit.index
+    transient_asthma = df_child_ml[
+        (df_child_ml.Asthma_Diagnosis_5yCLA == 0)
+        & (df_child_ml.Asthma_Diagnosis_3yCLA == 1)
+        ]
+
+    print(
+        "Transient asthma is defined as those who were diagnosed as definite asthma at 3y but rediagnosed as no asthma at 5y."
     )
-    X_holdout = pd.DataFrame(
-        scalar.transform(X_holdout), columns=X_holdout.columns, index=X_holdout.index
+    print("The size of transient asthma subject group is:", transient_asthma.shape[0])
+
+    emerged_asthma = df_child_ml[
+        (df_child_ml.Asthma_Diagnosis_5yCLA == 1)
+        & (df_child_ml.Asthma_Diagnosis_3yCLA == 0)
+        ]
+
+    print(
+        "Emerged asthma is defined as those who were diagnosed as no asthma at 3y but rediagnosed as definite asthma at 5y."
+    )
+    print("The size of emerged asthma subject group is:", emerged_asthma.shape[0])
+
+    persistent_asthma = df_child_ml[
+        (df_child_ml.Asthma_Diagnosis_5yCLA == 1)
+        & (df_child_ml.Asthma_Diagnosis_3yCLA == 1)
+        ]
+
+    print("The size of persistent asthma subject group is:", persistent_asthma.shape[0])
+
+    rng = np.random.RandomState(holdout_random_state)
+
+    permutated_persist_asthma_index = rng.permutation(persistent_asthma.index)
+    permutated_transient_asthma_index = rng.permutation(transient_asthma.index)
+    permutated_emerged_asthma_index = rng.permutation(emerged_asthma.index)
+    permutated_no_asthma_index = rng.permutation(no_asthma.index)
+
+    holdout_persist_subjectnumber = permutated_persist_asthma_index[:ingredient_persist]
+    rest_persist_subjectnumber = permutated_persist_asthma_index[ingredient_persist:]
+    holdout_emerged_subjectnumber = permutated_emerged_asthma_index[:ingredient_emerged]
+    rest_emerged_subjectnumber = permutated_emerged_asthma_index[ingredient_emerged:]
+
+    holdout_noasthma_subjectnumber = permutated_no_asthma_index[:ingredient_no_asthma]
+    rest_noasthma_subjectnumber = permutated_no_asthma_index[ingredient_no_asthma:]
+    holdout_transient_subjectnumber = permutated_transient_asthma_index[
+                                      :ingredient_transient
+                                      ]
+    rest_transient_subjectnumber = permutated_transient_asthma_index[
+                                   ingredient_transient:
+                                   ]
+
+    holdout_index = (
+            list(holdout_persist_subjectnumber)
+            #            + list(holdout_transient_subjectnumber)
+            + list(holdout_noasthma_subjectnumber)
+            + list(holdout_emerged_subjectnumber)
     )
 
-    # Train the model
-    estimator.fit(X_fit, y_fit)
+    rest_index = (
+            list(rest_persist_subjectnumber)
+            #            + list(rest_transient_subjectnumber)
+            + list(rest_noasthma_subjectnumber)
+            + list(rest_emerged_subjectnumber)
+    )
 
-    # Fill the result to be returned
-    holdout_result = {}
-    holdout_result["y_true_holdout"] = y_holdout
-    holdout_result["y_predicted_holdout"] = estimator.predict(X_holdout)
-    holdout_result["y_predicted_prob_holdout"] = estimator.predict_proba(X_holdout)
-    holdout_result["precision_recall_f1_support"] = np.array(
-        precision_recall_fscore_support(
-            y_holdout, holdout_result["y_predicted_holdout"], labels=[0, 1]
+    print(
+        f"The shrunk dataframe to be processed (engineered and imputed): \n Distribution of Asthma: \n{df_child_ml.Asthma_Diagnosis_5yCLA.value_counts()}, with the dimension of {df_child_ml.shape}"
+    )
+
+    print(
+        f"The train & evalution dataframe to be processed (engineered and imputed): \n Distribution of Asthma: \n{df_child_ml.loc[rest_index, :].Asthma_Diagnosis_5yCLA.value_counts(normalize=False)}, with the dimension of {df_child_ml.loc[rest_index, :].shape}"
+    )
+
+    print(
+        f"The holdout dataframe to be processed (engineered and transformed): \n Distribution of Asthma: \n{df_child_ml.loc[holdout_index, :].Asthma_Diagnosis_5yCLA.value_counts(normalize=False)}, with the dimension of {df_child_ml.loc[holdout_index, :].shape}"
+    )
+
+    return df_child_ml, rest_index, holdout_index
+
+# Auto-tuning for multiple models with manually selected features, print out best params and display confusion matrix results
+def ml_tuned_run(df_train_eval,
+                 df_holdout,
+                 feature_columns_selected,
+                 target_name,
+                 scalar=MinMaxScaler(),
+                 cv_for_tune=StratifiedKFold(n_splits=3, random_state=4, shuffle=True),
+                 scoring_for_tune="average_precision",
+                 ):
+    # List of Model to perform Grid Search
+    clf_lr = LogisticRegression(class_weight="balanced")
+    clf_dt = DecisionTreeClassifier(class_weight="balanced", random_state=2021)
+    clf_svc = SVC(class_weight="balanced", probability=True, random_state=2021)
+    clf_rf = RandomForestClassifier(class_weight="balanced", random_state=2021)
+    clf_xgb = XGBClassifier(random_state=2021, verbosity=0)
+
+    # Define param grid for hyperparmeter tuning
+    param_grid_lr = {
+        "solver": ["lbfgs", "liblinear", "saga"], #default=’lbfgs’
+        "C": [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1], #  default: 1
+    }
+
+    param_grid_dt = {
+        "criterion": ["gini", "entropy"], #default=”gini”
+        "max_depth": [3, 4, 5, 6, 7, None], #default=None
+        "min_samples_split": [2, 4],#default=2
+        "max_features": ["sqrt", 0.8, None], #default=None
+    }
+
+    param_grid_svc = {
+        "kernel": ["linear", "poly", "rbf", "sigmoid"], #default=’rbf’
+        "C": [0.02, 0.05, 0.1, 0.2, 0.5, 1], #default=1
+    }
+
+    param_grid_rf = {
+        "max_depth": [3, 4, 5, 6], #default=None
+        "max_features": [4, 5, 6, 7, 8], #default=None
+    }
+
+    param_grid_xgb = {
+        "learning_rate": [1e-2, 5e-2, 1e-1, 3e-1], #default=0.3
+        "max_depth": [3, 4, 5, 6], #default=6
+        "colsample_bytree": [0.5, 0.75, 1],#default=1
+        "scale_pos_weight": [7, 10, 15], # equivalent to class_weight, default = 1
+    }
+
+    # Best Param dict
+    gs_param_dict = {}
+    gs_param_dict['nb'] = {}
+    gs_param_dict['knn'] = {}
+
+    # Print out the current best parameters for evaluation dataset
+    # Before fit search, scale the dataset first.
+    X_train_eval = df_train_eval[feature_columns_selected]
+    y_train_eval = df_train_eval[target_name]
+    X_test = df_holdout[feature_columns_selected]
+    y_test = df_holdout[target_name]
+
+    scalar.fit(X_train_eval)
+
+    X_train_eval = pd.DataFrame(
+        scalar.transform(X_train_eval), columns=X_train_eval.columns, index=X_train_eval.index
+    )
+
+    X_test = pd.DataFrame(
+        scalar.transform(X_test), columns=X_test.columns, index=X_test.index
+    )
+
+    ###############################Logistic Regression########################################
+    gs_lr = GridSearchCV(clf_lr, param_grid_lr, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for lr in {param_grid_lr}....")
+    gs_lr.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['lr']=gs_lr.best_params_
+    print(
+        f"The best parameters for Logistic Regression are: {gs_lr.best_params_} with the score of {gs_lr.best_score_}")
+
+    ###############################Decision Tree########################################
+    gs_dt = GridSearchCV(clf_dt, param_grid_dt, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for dt in {param_grid_dt}....")
+    gs_dt.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['dt'] = gs_dt.best_params_
+    print(f"The best parameters for Decision Tree are: {gs_dt.best_params_} with the score of {gs_dt.best_score_}")
+
+    ###############################Support Vector Machine########################################
+    gs_svc = GridSearchCV(clf_svc, param_grid_svc, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for svc  in {param_grid_svc}....")
+    gs_svc.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['svc'] = gs_svc.best_params_
+    print(
+        f"The best parameters for Support Vector Machine are:{gs_svc.best_params_} with the score of {gs_svc.best_score_}")
+
+    ###############################Random Forest########################################
+    gs_rf = GridSearchCV(clf_rf, param_grid_rf, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for rf in {param_grid_rf}....")
+    gs_rf.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['rf'] = gs_rf.best_params_
+    print(f"The best parameters for Random Forest are: {gs_rf.best_params_} with the score of {gs_rf.best_score_}")
+
+    ###############################XGBoost########################################
+    gs_xgb = GridSearchCV(clf_xgb, param_grid_xgb, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for xgb in {param_grid_xgb}....")
+    gs_xgb.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['xgb'] = gs_xgb.best_params_
+    print(f"The best parameters for XGBoost are: {gs_xgb.best_params_} with the score of {gs_xgb.best_score_}")
+
+
+    # Quick Visualize Result with tuned hyperparameters
+    # (1) Logistic Regression
+    lr_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=LogisticRegression(class_weight="balanced", **gs_param_dict['lr']),
+        scalar=MinMaxScaler(),
+    )
+    ConfusionMatrixDisplay.from_predictions(
+        lr_cv_performance[0]["y_true_holdout"],
+        lr_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+    )
+
+    print(
+        classification_report(
+            lr_cv_performance[0]["y_true_holdout"],
+            lr_cv_performance[0]["y_predicted_holdout_altered_threshold"],
         )
     )
-    holdout_result["average_precision_score"] = average_precision_score(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+
+    lr_imp_features = pd.DataFrame(
+        data=lr_cv_performance[1].coef_.reshape(1, -1)[0],
+        index=list(feature_columns_selected),
+        columns=["Logistic Regression"],
     )
-    holdout_result["roc_auc_score"] = roc_auc_score(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-    )
-    holdout_result["precision_recall_threshold"] = precision_recall_curve(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-    )
-    p, r, threshold = precision_recall_curve(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-    )
-    f_score = 2 * (p * r) / (p + r)
-    holdout_result["highest_f1_and_threshold"] = (
-        f_score[f_score.argsort()[-1]],
-        threshold[f_score.argsort()[-1]],
-    )
-    holdout_result["y_predicted_holdout_altered_threshold"] = np.where(
-        holdout_result["y_predicted_prob_holdout"][:, 1]
-        >= threshold[f_score.argsort()[-1]],
-        1,
-        0,
+    lr_imp_features.sort_values("Logistic Regression", ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=lr_imp_features, y=lr_imp_features.index, x=lr_imp_features["Logistic Regression"],
     )
 
-    # Print out result
-    print(classification_report(y_holdout, holdout_result["y_predicted_holdout"]))
-
-    # Plotting
-    display = PrecisionRecallDisplay.from_predictions(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    # (2) Decision Tree
+    dt_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=DecisionTreeClassifier(class_weight="balanced", random_state=2021, **gs_param_dict['dt']),
+        scalar=MinMaxScaler(),
     )
-    _ = display.ax_.set_title(f"{estimator}")
 
-    display = RocCurveDisplay.from_predictions(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    ConfusionMatrixDisplay.from_predictions(
+        dt_cv_performance[0]["y_true_holdout"],
+        dt_cv_performance[0]["y_predicted_holdout_altered_threshold"],
     )
-    _ = display.ax_.set_title(f"{estimator}")
-    plt.plot([0, 1], [0, 1], color="red", lw=2, linestyle="--")
 
-    display = ConfusionMatrixDisplay.from_predictions(
-        y_holdout, holdout_result["y_predicted_holdout"]
+    print(
+        classification_report(
+            dt_cv_performance[0]["y_true_holdout"],
+            dt_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+        )
     )
-    _ = display.ax_.set_title(f"{estimator}")
 
-    return holdout_result, estimator
+    dt_imp_features = pd.DataFrame(
+        data=dt_cv_performance[1].feature_importances_.reshape(1, -1)[0],
+        index=list(feature_columns_selected),
+        columns=["Decision Tree"],
+    )
+    dt_imp_features.sort_values("Decision Tree", ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=dt_imp_features, y=dt_imp_features.index, x=dt_imp_features["Decision Tree"],
+    )
+
+    # (3) Support Vector Machine
+    svc_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=SVC(
+            class_weight="balanced",
+            probability=True,
+            random_state=2021,
+            **gs_param_dict['svc']
+        ),
+        scalar=MinMaxScaler(),
+    )
+    ConfusionMatrixDisplay.from_predictions(
+        svc_cv_performance[0]["y_true_holdout"],
+        svc_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+    )
+
+    print(
+        classification_report(
+            svc_cv_performance[0]["y_true_holdout"],
+            svc_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+        )
+    )
+
+    permutation_result = permutation_importance(
+        svc_cv_performance[1],
+        df_train_eval[feature_columns_selected],
+        df_train_eval[target_name],
+        n_repeats=12,
+        random_state=2021,
+        scoring="average_precision",
+    )
+
+    # Visualization of feature importance for permutation importance
+    perm_sorted_idx = permutation_result.importances_mean.argsort()
+    plt.figure(figsize=(20, 10))
+    plt.title("Feature Importance for {}".format("SVC"))
+    plt.barh(
+        width=permutation_result.importances_mean[perm_sorted_idx].T,
+        y=df_train_eval[feature_columns_selected].columns[perm_sorted_idx],
+    )
+
+    # (4) Random Forest
+    rf_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=RandomForestClassifier(
+            class_weight="balanced",
+            random_state=2021,
+            **gs_param_dict['rf']
+        ),
+        scalar=MinMaxScaler(),
+    )
+    ConfusionMatrixDisplay.from_predictions(
+        rf_cv_performance[0]["y_true_holdout"],
+        rf_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+    )
+
+    print(
+        classification_report(
+            rf_cv_performance[0]["y_true_holdout"],
+            rf_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+        )
+    )
+
+    rf_imp_features = pd.DataFrame(
+        data=rf_cv_performance[1].feature_importances_.reshape(1, -1)[0],
+        index=list(feature_columns_selected),
+        columns=["Random Forest"],
+    )
+    rf_imp_features.sort_values("Random Forest", ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=rf_imp_features, y=rf_imp_features.index, x=rf_imp_features["Random Forest"],
+    )
+
+    # (5) XGBoost
+    xgb_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=XGBClassifier(
+            random_state=2021,
+            verbosity=0,
+            **gs_param_dict['xgb']
+        ),
+        scalar=MinMaxScaler(),
+    )
+    ConfusionMatrixDisplay.from_predictions(
+        xgb_cv_performance[0]["y_true_holdout"],
+        xgb_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+    )
+
+    print(
+        classification_report(
+            xgb_cv_performance[0]["y_true_holdout"],
+            xgb_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+        )
+    )
+
+    xgb_imp_features = pd.DataFrame(
+        data=xgb_cv_performance[1].feature_importances_.reshape(1, -1)[0],
+        index=list(feature_columns_selected),
+        columns=["XGBoost"],
+    )
+    xgb_imp_features.sort_values("XGBoost", ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=xgb_imp_features, y=xgb_imp_features.index, x=xgb_imp_features["XGBoost"],
+    )
+
+    return gs_param_dict
+
+
+
+# Automatic Feature Selection At Multiple time-points  with specific ML model
+def ml_autofs_multiplepoints(
+        df_train_eval,
+        df_holdout,
+        four_time_dict,
+        scalar=MinMaxScaler(),
+        estimator=LogisticRegression(class_weight="balanced"),
+        estimator_name='lr',
+        cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
+        priori_k=25,
+        precision_inspection_range=0.005,
+        fixed_features=None,
+        scoring="average_precision",
+):
+    # Keep feature selection results in multiple time points
+    res = {}
+    res["at_birth"] = ml_feature_selection(
+        X=df_train_eval[four_time_dict["at_birth_feature"]],
+        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+        scalar=scalar,
+        cv=cv,
+        priori_k=priori_k,
+        scoring=scoring,
+        is_floating=True,
+        fixed_features=fixed_features,
+        precision_inspection_range=precision_inspection_range,
+        test_model_number=0,
+        clf=(estimator, estimator_name)
+    )
+
+    res["before_6m"] = ml_feature_selection(
+        X=df_train_eval[set(res["at_birth"][1].index) | four_time_dict["with_6m"]],
+        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+        scalar=scalar,
+        cv=cv,
+        priori_k=priori_k,
+        scoring=scoring,
+        is_floating=True,
+        fixed_features=fixed_features,
+        precision_inspection_range=precision_inspection_range,
+        test_model_number=0,
+        clf=(estimator, estimator_name)
+    )
+    res["before_12m"] = ml_feature_selection(
+        X=df_train_eval[set(res["before_6m"][1].index) | four_time_dict["with_12m"]],
+        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+        scalar=scalar,
+        cv=cv,
+        priori_k=priori_k,
+        scoring=scoring,
+        is_floating=True,
+        fixed_features=fixed_features,
+        precision_inspection_range=precision_inspection_range,
+        test_model_number=0,
+        clf=(estimator, estimator_name)
+    )
+    res["before_36m"] = ml_feature_selection(
+        X=df_train_eval[
+            set(res["before_12m"][1].index)
+            | four_time_dict["with_36m_exclude_diagnosis"]
+        ],
+        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+        scalar=scalar,
+        cv=cv,
+        priori_k=priori_k,
+        scoring=scoring,
+        is_floating=True,
+        fixed_features=fixed_features,
+        precision_inspection_range=precision_inspection_range,
+        test_model_number=0,
+        clf=(estimator, estimator_name)
+    )
+
+    # List feature selection at different time points
+    res_df = pd.concat(
+        [
+            res["at_birth"][0],
+            res["before_6m"][0],
+            res["before_12m"][0],
+            res["before_36m"][0],
+        ]
+    )
+    res_df.index = res.keys()
+
+    # View confusion matrix and keep model performance on holdout dataset
+
+    holdout_res = {} # Contains prediction and estimators
+    feature_res = {} # Contains feature importance for each model
+
+    for time_points in list(res.keys()):
+        holdout_res[time_points] = model_result_holdout(
+            df_train_eval,
+            df_holdout,
+            feature_columns_selected=list(res[time_points][1].index),
+            target_name="Asthma_Diagnosis_5yCLA",
+            estimator=estimator,
+            scalar=scalar,
+        )
+        ConfusionMatrixDisplay.from_predictions(
+            holdout_res[time_points][0]["y_true_holdout"],
+            holdout_res[time_points][0]["y_predicted_holdout_altered_threshold"],
+        )
+
+        print(
+            classification_report(
+                holdout_res[time_points][0]["y_true_holdout"],
+                holdout_res[time_points][0]["y_predicted_holdout_altered_threshold"],
+            )
+        )
+
+        if estimator_name in ['lr']:  # Coefficient for LogisticRegression
+
+            feature_res[time_points] = pd.DataFrame(
+                data=holdout_res[time_points][1].coef_.reshape(1, -1)[0],
+                index=list(res[time_points][1].index),
+                columns=[estimator_name],
+            )
+
+
+        elif estimator_name in ['dt', 'rf', 'xgb']:  # Feature Importance
+            feature_res[time_points] = pd.DataFrame(
+                data=holdout_res[time_points][1].feature_importances_.reshape(1, -1)[0],
+                index=list(res[time_points][1].index),
+                columns=[estimator_name],
+            )
+
+        else:  # Permutation importance
+
+            permutation_result = permutation_importance(
+                holdout_res[time_points][1],
+                df_train_eval[list(res[time_points][1].index)],
+                df_train_eval["Asthma_Diagnosis_5yCLA"],
+                n_repeats=15,
+                random_state=2021,
+                scoring="average_precision",
+            )
+
+            feature_res[time_points] = pd.DataFrame(
+                data=permutation_result["importances_mean"].reshape(1, -1)[0],
+                index=list(res[time_points][1].index),
+                columns=[estimator_name],
+            )
+        feature_res[time_points].sort_values(estimator_name, ascending=False, inplace=True)
+        plt.figure(figsize=(12, 8), dpi=200)
+        sns.barplot(
+            data=feature_res[time_points], y=feature_res[time_points].index, x=feature_res[time_points][estimator_name],
+        )
+
+    return res_df, holdout_res, feature_res
+
+
+# Calculate and visualize the feature importance change and model predictability over 4 different time points
+def ml_res_visualization(
+    df_train_eval,
+    df_holdout,
+    four_time_dict,
+    scalar=MinMaxScaler(),
+    cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
+    priori_k=25,
+    precision_inspection_range=0.005,
+    fixed_features=None,
+    scoring="average_precision",
+):
+    # Define the model parameter here for auto feature selection
+
+    # Logistic Regression
+    lr = LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")
+
+    # Random Forest
+    rf = RandomForestClassifier(
+        n_estimators=100,
+        class_weight="balanced",
+        max_depth=3,
+        max_features=5,
+        random_state=2021,
+    )
+
+    # XGB
+    xgb = XGBClassifier(
+        max_depth=3,
+        learning_rate=0.01,
+        colsample_bytree=0.8,
+        scale_pos_weight=15,
+        subsample=0.8,
+        random_state=2021,
+    )
+    # SVC
+    svc = SVC(
+        C=0.02,
+        kernel="linear",
+        class_weight="balanced",
+        probability=True,
+        random_state=2021,
+    )
+    # Decision Tree
+    dt = DecisionTreeClassifier(
+        criterion="gini",
+        max_depth=6,  # Previous is None
+        class_weight="balanced",
+        random_state=2021,
+    )
+
+    ml_name_dict = {
+        "lr": [lr, "Logistic Regression"],
+        "rf": [rf, "Random Forest"],
+        "xgb": [xgb, "eXtreme Gradient Boost"],
+        "svc": [svc, "Support Vector Machine"],
+        "dt": [dt, "Decision Tree"],
+    }
+
+    ml_res_dict = {}
+    for ml_name in ml_name_dict.keys():
+        ml_res_dict[ml_name] = ml_autofs_multiplepoints(
+            df_train_eval,
+            df_holdout,
+            four_time_dict,
+            scalar=scalar,
+            estimator=ml_name_dict[ml_name][0],
+            estimator_name=ml_name,
+            cv=cv,
+            priori_k=priori_k,
+            precision_inspection_range=precision_inspection_range,
+            fixed_features=fixed_features,
+            scoring=scoring,
+        )
+
+    # Visualize the model performance at each time point
+    model_performance_dict = defaultdict(list)
+    model_name_full = [i[1] for i in list(ml_name_dict.values())]
+    model_res = list(ml_res_dict.values())
+    time_points = ["at_birth", "before_6m", "before_12m", "before_36m"]
+    model_metrics = [
+        "Precision",
+        "Recall",
+        "F1",
+        "Average_precision",
+        "Roc_auc",
+        "Support",
+    ]
+    model_multiindex = []
+    for model_name, content in zip(model_name_full, model_res):
+        for timepoint in time_points:
+            model_performance_dict[model_name + "-" + timepoint] = [
+                content[1][timepoint][0]["precision_recall_f1_support"][:, 1][0],
+                content[1][timepoint][0]["precision_recall_f1_support"][:, 1][1],
+                content[1][timepoint][0]["precision_recall_f1_support"][:, 1][2],
+                content[1][timepoint][0]["average_precision_score"],
+                content[1][timepoint][0]["roc_auc_score"],
+                content[1][timepoint][0]["precision_recall_f1_support"][:, 1][3],
+            ]
+            model_multiindex.append((model_name, timepoint))
+
+    df_model_performance = pd.DataFrame(model_performance_dict, index=model_metrics).T
+    df_model_performance.index = pd.MultiIndex.from_tuples(
+        model_multiindex, names=["Model", "Time Point"]
+    )
+
+    df_model_performance.drop(columns=["Support"])
+
+    model_perform_df = df_model_performance.drop(columns=["Support"])
+
+    # Create feature importance dictionary for each model used
+    feature_importance_dict = {}
+
+    for i in ml_res_dict.keys():
+        feature_importance_dict[i] = pd.DataFrame()
+        for t in time_points:
+            ml_res_dict[i][2][t].columns = [t]
+            feature_importance_dict[i] = pd.concat(
+                [feature_importance_dict[i], ml_res_dict[i][2][t]], axis=1
+            )
+
+        # Create visualization
+        plt.figure(figsize=(9, 14))
+        plt.title(ml_name_dict[i][1])
+
+        # Set vmin, vmax, for seaborn heatmap color bar
+        if i in ["lr"]:
+            vmin = -1
+            vmax = 1
+        elif i in ["dt", "xgb", "rf"]:
+            vmin = 0
+            vmax = 0.4
+        else:  # Permutation importance
+            vmin = -0.02
+            vmax = 0.1
+
+        # Plotting
+        g = sns.heatmap(
+            feature_importance_dict[i],
+            cmap="vlag",
+            center=0,
+            vmax=vmax,
+            vmin=vmin,
+            linewidths=0.05,
+            annot=True,
+            linecolor="lightgrey",
+            cbar_kws={"shrink": 0.45},
+        )
+        g.xaxis.set_ticks_position("top")
+
+    # Visualize the model performance in colored frame
+    model_perform_df.style.background_gradient(cmap="Greens")
+
+    return ml_res_dict, feature_importance_dict, model_perform_df
+
 
 
 # View the highest performed features for various machine learning models
 def ml_feature_selection(
-    X,
-    y,
-    scalar=MinMaxScaler(),
-    cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
-    priori_k=25,
-    scoring="average_precision",
-    is_floating=True,
-    fixed_features=None,
-    precision_inspection_range=0.02,
-    test_model_number=None
+        X,
+        y,
+        scalar=MinMaxScaler(),
+        cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
+        priori_k=25,
+        scoring="average_precision",
+        is_floating=True,
+        fixed_features=None,
+        precision_inspection_range=0.02,
+        test_model_number=None, #  0 represents only specific ML model will be used, None represent all model in function
+        clf=(None,"model_name"), # The first element is classifier, the second element is the name to be referred
 ):
     """
     Generate feature subset performance dataframe for minimal feature selection.
@@ -449,7 +1086,7 @@ def ml_feature_selection(
     svc = SVC(class_weight="balanced")
     knn = KNeighborsClassifier(n_neighbors=5)
     lr = LogisticRegression(class_weight="balanced")
-    rf = RandomForestClassifier(class_weight="balanced",random_state=2021)
+    rf = RandomForestClassifier(class_weight="balanced", random_state=2021)
     xgb = XGBClassifier(class_weight="balanced")
     dt = DecisionTreeClassifier(
         criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
@@ -460,14 +1097,12 @@ def ml_feature_selection(
 
     # Records all the result
     res_dict = {}
-    for model, model_name in zip(
-        [lr, rf, dt, knn, xgb,  svc][:test_model_number], ["lr", "rf", "dt", "knn", "xgb",  "svc"][:test_model_number]
-    ):
+    if test_model_number == 0:
         print(
-            "Current classifier where feature selection is being tested is:", model_name
+            "The specific classifier where feature is being automatically selected is:", clf[1]
         )
         sfs = SFS(
-            model,
+            clf[0],
             k_features=priori_k,
             forward=True,
             floating=is_floating,
@@ -479,9 +1114,33 @@ def ml_feature_selection(
 
         sfs = sfs.fit(X, y)
 
-        res_dict[model_name] = pd.DataFrame.from_dict(
+        res_dict[clf[1]] = pd.DataFrame.from_dict(
             sfs.get_metric_dict()
         ).T.sort_values(by="avg_score", ascending=False)
+
+    else:
+        for model, model_name in zip(
+                [lr, rf, dt, knn, xgb, svc][:test_model_number], ["lr", "rf", "dt", "knn", "xgb", "svc"][:test_model_number]
+        ):
+            print(
+                "Current classifier where feature selection is being tested is:", model_name
+            )
+            sfs = SFS(
+                model,
+                k_features=priori_k,
+                forward=True,
+                floating=is_floating,
+                verbose=2,
+                scoring=scoring,
+                cv=cv,
+                fixed_features=fixed_features,
+            )
+
+            sfs = sfs.fit(X, y)
+
+            res_dict[model_name] = pd.DataFrame.from_dict(
+                sfs.get_metric_dict()
+            ).T.sort_values(by="avg_score", ascending=False)
 
     # Extract only the best performed subset
     birth_fs_df = pd.DataFrame()
@@ -558,122 +1217,497 @@ def ml_feature_selection(
 
     return birth_fs_df, birth_features_frequency, res_dict
 
-# Extract index_number from raw dataset for all further modelling, training, evaluation, and holdout testing
-def df_holdout_throughout(
-    df_child,
-    include_dust=False,
-    sample_na_allow=30,
-    holdout_random_state=100,
-    ingredient_persist=15,
-    ingredient_transient=5,
-    ingredient_emerged=5,
-    ingredient_no_asthma=110,
+
+# Final Model Performance - Holdout Result View
+def model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        random_state_for_eval_split=123,
+        eval_positive_number=30,
+        eval_negative_number=150,
+        train_eval_separation_to_fit=False,
+        estimator=LogisticRegression(class_weight="balanced"),
+        scalar=MinMaxScaler(),
 ):
-    # Display the sample number change
-    print("The original sample dimension is", df_child.shape)
+    """
+    Perform model performance test on holdout dataset with trained model with given feature columns. Dataframe
+    need to be scaled first - transformed with the previously fitted scalar.
+    X_holdout, y_holdout will be determined using feature_columns and target
+    :param df_train_eval: train_evaluation dataset that has been engineered and imputed
+    :param df_holdout: holdout dataset that has been engineered and imputed
+    :param feature_columns_selected: array-like
+    :param target_name: str
+    :param random_state_for_eval_split=123,
+    :param eval_positive_number=30,
+    :param eval_negative_number=150,
+    :param train_eval_separation_to_fit: boolean
+    :param estimator: classifier to be tested
+    :param scalar: scalar to be selected
+    :return: dictionary containing information for y_true_holdout, y_predicted_holdout, y_probability_holdout
+    """
+    # Reset index to start from 0
+    df_train_eval.reset_index(drop=True, inplace=True)
+    df_holdout.reset_index(drop=True, inplace=True)
 
-    df_child_ml = df_child[
-        (df_child.Asthma_Diagnosis_3yCLA.notna())
-        & (df_child.Asthma_Diagnosis_5yCLA.notna())
-    ].copy()
+    # Fit the model with only the train data during feature selection
+    # If train_eval_separation_for_train == True,  random_state_for_eval_split, eval_positive_number=30,
+    # eval_negative_number=150
+    if train_eval_separation_to_fit:
+        eval_positive_index = np.random.RandomState(
+            random_state_for_eval_split
+        ).permutation(df_train_eval[df_train_eval[target_name] == 1].index)[
+                              :eval_positive_number
+                              ]
+        eval_negative_index = np.random.RandomState(
+            random_state_for_eval_split
+        ).permutation(df_train_eval[df_train_eval[target_name] == 0].index)[
+                              :eval_negative_number
+                              ]
 
-    print(
-        "The sample dimension with both 3y and 5y clinical assessment is",
-        df_child_ml.shape,
-    )
+        eval_index = set(list(eval_positive_index) + list(eval_negative_index))
+        whole_index = set(df_train_eval.index)
 
-    dust_column_names = df_child_ml.columns[
-        df_child_ml.columns.str.contains("Home_.*P_3m")
-    ]
-    if include_dust:
-        df_child_ml = df_child_ml.dropna(axis="index", subset=dust_column_names)
-        print("The sample dimension with dust sample data is", df_child_ml.shape)
+        X_fit = df_train_eval[feature_columns_selected].loc[whole_index - eval_index]
+        y_fit = df_train_eval[target_name].loc[whole_index - eval_index]
+
     else:
-        print("The removed dust columns are", dust_column_names)
-        df_child_ml = df_child_ml.drop(columns=dust_column_names)
-        print("The sample dimension without dust sample data is", df_child_ml.shape)
+        X_fit = df_train_eval[feature_columns_selected]
+        y_fit = df_train_eval[target_name]
 
-    # Group division
-    no_asthma = df_child_ml[
-        (df_child_ml.Asthma_Diagnosis_5yCLA == 0)
-        & (df_child_ml.Asthma_Diagnosis_3yCLA == 0)
-    ]
+    X_holdout = df_holdout[feature_columns_selected]
+    y_holdout = df_holdout[target_name]
 
-    print("The size of no asthma subject group is:", no_asthma.shape[0])
+    # Scale first before fit the model
+    # For the reproducibility of the result of feature selection and stratified multiple cross-validation,
+    # we fit the entire train_eval subset for scalar
+    scalar.fit(df_train_eval[feature_columns_selected])
+    # scalar.fit(X_fit)
 
-    transient_asthma = df_child_ml[
-        (df_child_ml.Asthma_Diagnosis_5yCLA == 0)
-        & (df_child_ml.Asthma_Diagnosis_3yCLA == 1)
-    ]
-
-    print(
-        "Transient asthma is defined as those who were diagnosed as definite asthma at 3y but rediagnosed as no asthma at 5y."
+    X_fit = pd.DataFrame(
+        scalar.transform(X_fit), columns=X_fit.columns, index=X_fit.index
     )
-    print("The size of transient asthma subject group is:", transient_asthma.shape[0])
-
-    emerged_asthma = df_child_ml[
-        (df_child_ml.Asthma_Diagnosis_5yCLA == 1)
-        & (df_child_ml.Asthma_Diagnosis_3yCLA == 0)
-    ]
-
-    print(
-        "Emerged asthma is defined as those who were diagnosed as no asthma at 3y but rediagnosed as definite asthma at 5y."
-    )
-    print("The size of emerged asthma subject group is:", emerged_asthma.shape[0])
-
-    persistent_asthma = df_child_ml[
-        (df_child_ml.Asthma_Diagnosis_5yCLA == 1)
-        & (df_child_ml.Asthma_Diagnosis_3yCLA == 1)
-    ]
-
-    print("The size of persistent asthma subject group is:", persistent_asthma.shape[0])
-
-    rng = np.random.RandomState(holdout_random_state)
-
-    permutated_persist_asthma_index = rng.permutation(persistent_asthma.index)
-    permutated_transient_asthma_index = rng.permutation(transient_asthma.index)
-    permutated_emerged_asthma_index = rng.permutation(emerged_asthma.index)
-    permutated_no_asthma_index = rng.permutation(no_asthma.index)
-
-    holdout_persist_subjectnumber = permutated_persist_asthma_index[:ingredient_persist]
-    rest_persist_subjectnumber = permutated_persist_asthma_index[ingredient_persist:]
-    holdout_emerged_subjectnumber = permutated_emerged_asthma_index[:ingredient_emerged]
-    rest_emerged_subjectnumber = permutated_emerged_asthma_index[ingredient_emerged:]
-
-    holdout_noasthma_subjectnumber = permutated_no_asthma_index[:ingredient_no_asthma]
-    rest_noasthma_subjectnumber = permutated_no_asthma_index[ingredient_no_asthma:]
-    holdout_transient_subjectnumber = permutated_transient_asthma_index[
-        :ingredient_transient
-    ]
-    rest_transient_subjectnumber = permutated_transient_asthma_index[
-        ingredient_transient:
-    ]
-
-    holdout_index = (
-        list(holdout_persist_subjectnumber)
-        #            + list(holdout_transient_subjectnumber)
-        + list(holdout_noasthma_subjectnumber)
-        + list(holdout_emerged_subjectnumber)
+    X_holdout = pd.DataFrame(
+        scalar.transform(X_holdout), columns=X_holdout.columns, index=X_holdout.index
     )
 
-    rest_index = (
-        list(rest_persist_subjectnumber)
-        #            + list(rest_transient_subjectnumber)
-        + list(rest_noasthma_subjectnumber)
-        + list(rest_emerged_subjectnumber)
+    # Train the model
+    estimator.fit(X_fit, y_fit)
+
+    # Fill the result to be returned
+    holdout_result = {}
+    holdout_result["y_true_holdout"] = y_holdout
+    holdout_result["y_predicted_holdout"] = estimator.predict(X_holdout)
+    holdout_result["y_predicted_prob_holdout"] = estimator.predict_proba(X_holdout)
+    holdout_result["precision_recall_f1_support"] = np.array(
+        precision_recall_fscore_support(
+            y_holdout, holdout_result["y_predicted_holdout"], labels=[0, 1]
+        )
+    )
+    holdout_result["average_precision_score"] = average_precision_score(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    holdout_result["roc_auc_score"] = roc_auc_score(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    holdout_result["precision_recall_threshold"] = precision_recall_curve(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    p, r, threshold = precision_recall_curve(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    minimal_divider_buffer = 0.00000001
+    f_score = 2 * (p * r) / (p + r + minimal_divider_buffer)
+    holdout_result["highest_f1_and_threshold"] = (
+        f_score[f_score.argsort()[-1]],
+        threshold[f_score.argsort()[-1]],
+    )
+    holdout_result["y_predicted_holdout_altered_threshold"] = np.where(
+        holdout_result["y_predicted_prob_holdout"][:, 1]
+        >= threshold[f_score.argsort()[-1]],
+        1,
+        0,
     )
 
-    return df_child_ml, rest_index, holdout_index
+    # Print out result
+    print(classification_report(y_holdout, holdout_result["y_predicted_holdout"]))
+
+    # Plotting
+    display = PrecisionRecallDisplay.from_predictions(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    _ = display.ax_.set_title(f"{estimator}")
+
+    display = RocCurveDisplay.from_predictions(
+        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+    )
+    _ = display.ax_.set_title(f"{estimator}")
+    plt.plot([0, 1], [0, 1], color="red", lw=2, linestyle="--")
+
+    display = ConfusionMatrixDisplay.from_predictions(
+        y_holdout, holdout_result["y_predicted_holdout"]
+    )
+    _ = display.ax_.set_title(f"{estimator}")
+
+    return holdout_result, estimator
 
 
-#Identify the minimal features that generate highest performance using self-defined strategies.
+# An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
+# An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
+def df_ml_run(
+        df_train_eval,
+        df_holdout,
+        feature_columns,
+        target_name,
+        scalar=MinMaxScaler(),
+        scoring_func=average_precision_score,
+        importance_scoring="average_precision",
+):
+    """
+    Fast run of a myriad of models and return three very informative dataframes (confusion matrix dataframe,  model performance dataframe
+    and colored feature importance dataframe) and one decision tree for visualization
+
+    :param scoring_func: a predefined function, default: f1_score
+        model_scoring has to be one of accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+        since it must have the same name of sklearn.metrics functions
+
+    :param importance_scoring: string, default: f1
+        importance_scoring has to be one of 'accuracy', 'f1', 'precision', 'recall', 'roc_auc',"average_precision"
+        since it must be recognizable as a parameter to be put into permutation importance
+
+    :return: Confusion matrix dataframe, model performance, feature importance
+
+    ------------------------
+    Examples:
+    ml_result_tuple = df_ml_run(X_train, X_test, y_train, y_test)
+    """
+    # Reset index to start from 0
+    df_train_eval.reset_index(drop=True, inplace=True)
+    df_holdout.reset_index(drop=True, inplace=True)
+
+    # Generate trainable dataset and corresponding test dataset
+    X_train = df_train_eval[feature_columns]
+    y_train = df_train_eval[target_name]
+    X_test = df_holdout[feature_columns]
+    y_test = df_holdout[target_name]
+
+    scalar.fit(X_train)
+
+    X_train = pd.DataFrame(
+        scalar.transform(X_train), columns=X_train.columns, index=X_train.index
+    )
+
+    X_test = pd.DataFrame(
+        scalar.transform(X_test), columns=X_test.columns, index=X_test.index
+    )
+
+    # A dictionary that will store the performance score of models to evaluate feature importance
+    model_score = {}
+
+    # A dictionary that will store the confusion matrix results as string to easy comparision
+    model_cm = {}
+
+    # A dictionary that will store the feature importance for different models
+    model_feature = {}
+
+    # Initializing the model using desired abbreviated names as model instance to train and test
+
+    # xgb = XGBClassifier(learning_rate=0.01, n_estimators=250)
+    # dt = DecisionTreeClassifier(criterion="entropy", random_state=0, max_depth=6)
+    # rf = RandomForestClassifier(n_estimators=200, random_state=0, max_depth=5)
+    # knn = KNeighborsClassifier(n_neighbors=5)
+    # svc = SVC(kernel="rbf", C=6)
+    # lr = LogisticRegression()
+    nb = GaussianNB()
+    svc = SVC(class_weight="balanced", probability=True)
+    knn = KNeighborsClassifier(n_neighbors=5)
+    lr = LogisticRegression(class_weight="balanced")
+    rf = RandomForestClassifier(class_weight="balanced", random_state=0)
+    xgb = XGBClassifier(class_weight="balanced")
+    dt = DecisionTreeClassifier(
+        criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
+    )
+
+    # A dictionary that stores the full name of model
+    model_name = {
+        "knn": "K_Nearest_Neigbhors",
+        "xgb": "eXtreme_Gradient_Boost",
+        "svc": "Support_Vector_Machine",
+        "dt": "Decision_Tree",
+        "rf": "Random_Forest",
+        "nb": "Naive_Bayes",
+        "lr": "Logistic_Regression",
+    }
+
+    permutation_importance_list = [(knn, "knn"), (svc, "svc"), (nb, "nb")]
+    feature_importance_list = [(dt, "dt"), (rf, "rf"), (xgb, "xgb")]
+    coefficient_list = [(lr, "lr")]
+
+    model_list = (
+            permutation_importance_list + feature_importance_list + coefficient_list
+    )
+
+    # 1. Search for most effective predictive models and relevant feature importance
+    for model, key in model_list:
+
+        # Train and predict
+        model.fit(X_train, y_train)
+        predicted = model.predict(X_test)
+
+        # Store result
+        if (importance_scoring == "average_precision") or (
+                importance_scoring == "roc_auc"
+        ):
+            model_score[key] = scoring_func(y_test, model.predict_proba(X_test)[:, 1])
+        else:
+            model_score[key] = scoring_func(y_test, predicted)
+
+        model_cm[key] = str(
+            {
+                k: dict(v)
+                for k, v in dict(
+                pd.DataFrame(
+                    confusion_matrix(y_test, predicted),
+                    columns=["Pr0", "Pr1"],
+                    index=["Tr0", "Tr1"],
+                )
+            ).items()
+            }
+        )
+        # Display model result
+        print(f"confussion matrix: {confusion_matrix(y_test, predicted)}\n")
+        plot_confusion_matrix(model, X_test, y_test)
+        print(
+            f"The {importance_scoring} score of {model_name[key]}: {model_score[key] * 100} \n"
+        )
+        print(classification_report(y_test, predicted))
+
+        # Permutation importance
+        if (model, key) in permutation_importance_list:
+
+            # Evaluating Feature importance
+            permutation_result = permutation_importance(
+                model,
+                X_train,
+                y_train,
+                n_repeats=10,
+                random_state=1012,
+                scoring=importance_scoring,
+            )
+
+            # Storing feature importance
+            model_feature[key] = permutation_result.importances_mean.reshape(1, -1)[0]
+
+            # Visualization of feature importance for permutation importance
+            perm_sorted_idx = permutation_result.importances_mean.argsort()
+            plt.figure(figsize=(20, 10))
+            plt.title("Feature Importance for {}".format(model_name[key]))
+            plt.barh(
+                width=permutation_result.importances_mean[perm_sorted_idx].T,
+                y=X_train.columns[perm_sorted_idx],
+            )
+        # Feature Importance for tree-based models:
+        elif (model, key) in feature_importance_list:
+
+            # Storing feature importance
+            model_feature[key] = model.feature_importances_.reshape(1, -1)[0]
+
+            # Plot visualization of feature importance for tree-based models
+            imp_features = pd.DataFrame(
+                data=model.feature_importances_,
+                index=X_test.columns,
+                columns=[model_name[key]],
+            )
+            imp_features.sort_values(model_name[key], ascending=False, inplace=True)
+            plt.figure(figsize=(12, 8), dpi=200)
+            sns.barplot(
+                data=imp_features,
+                y=imp_features.index,
+                x=imp_features[model_name[key]],
+            )
+
+        # Feature importance for linear-based models:
+        elif (model, key) in coefficient_list:
+
+            # Storing feature importance
+            model_feature[key] = model.coef_.reshape(1, -1)[0]
+
+            # Plot visualization of feature importance for linear models
+            imp_features = pd.DataFrame(
+                data=model.coef_.reshape(1, -1)[0],
+                index=X_test.columns,
+                columns=[model_name[key]],
+            )
+            imp_features.sort_values(model_name[key], ascending=False, inplace=True)
+            plt.figure(figsize=(12, 8), dpi=200)
+            sns.barplot(
+                data=imp_features,
+                y=imp_features.index,
+                x=imp_features[model_name[key]],
+            )
+        else:
+            print(
+                "{} is not found in the model_list, please check".format((model, key))
+            )
+
+    # 2. Put all metrics together for different models
+    score_dict = defaultdict(list)
+    models = [lr, nb, rf, knn, dt, svc, xgb]
+    models_label = [
+        "Logistic_Regression",
+        "Naive_Bayes",
+        "Random_Forest",
+        "K_Nearest_Neigbhors",
+        "Decision_Tree",
+        "Support_Vector_Machine",
+        "eXtreme_Gradient_Boost",
+    ]
+    measurements = [
+        precision_score,
+        recall_score,
+        f1_score,
+        average_precision_score,
+        roc_auc_score,
+        accuracy_score,
+    ]
+    measurement_names = [
+        "Precision",
+        "Recall",
+        "F1",
+        "Average_precision",
+        "Roc_auc",
+        "Accuracy",
+    ]
+    for i in range(len(models)):
+        score_dict["Model"].append(models_label[i])
+        for j in range(len(measurements)):
+            if "_" in measurement_names[j]:
+                score_dict[measurement_names[j]].append(
+                    measurements[j](y_test, models[i].predict_proba(X_test)[:, 1])
+                )
+            else:
+                score_dict[measurement_names[j]].append(
+                    measurements[j](y_test, models[i].predict(X_test))
+                )
+
+    score_df = pd.DataFrame(score_dict).set_index("Model")
+
+    # Extract highest performing scoring
+    score_dict_highest = defaultdict(list)
+    models = [lr, nb, rf, knn, dt, svc, xgb]
+    models_label = [
+        "Logistic_Regression",
+        "Naive_Bayes",
+        "Random_Forest",
+        "K_Nearest_Neigbhors",
+        "Decision_Tree",
+        "Support_Vector_Machine",
+        "eXtreme_Gradient_Boost",
+    ]
+    measurements = [
+        precision_score,
+        recall_score,
+        f1_score,
+        average_precision_score,
+        roc_auc_score,
+        accuracy_score,
+        "threshold_positioner",
+    ]
+    measurement_names = [
+        "Precision",
+        "Recall",
+        "F1",
+        "Average_precision",
+        "Roc_auc",
+        "Accuracy",
+        "Threshold",
+    ]
+    for i in range(len(models)):
+        score_dict_highest["Model"].append(models_label[i])
+
+        # Retrieve Threshold and altered Prediction for the calculation of F1, Precision, Recall and Accuracy
+        predicted_proba = models[i].predict_proba(X_test)[:, 1]
+        p, r, threshold = precision_recall_curve(y_test, predicted_proba)
+        f_score = 2 * (p * r) / (p + r + 0.0000001)
+        predicted_highest = np.where(
+            predicted_proba >= threshold[f_score.argsort()[-1]], 1, 0
+        )
+        threshold_for_highest = round(threshold[f_score.argsort()[-1]], 2)
+
+        for j in range(len(measurements)):
+            if measurement_names[j] == "Threshold":
+                score_dict_highest[measurement_names[j]].append(
+                    threshold[f_score.argsort()[-1]]
+                )
+            elif "_" in measurement_names[j]:
+                score_dict_highest[measurement_names[j]].append(
+                    measurements[j](y_test, predicted_proba)
+                )
+            else:
+                score_dict_highest[measurement_names[j]].append(
+                    measurements[j](y_test, predicted_highest)
+                )
+
+    score_dict_highest = pd.DataFrame(score_dict_highest).set_index("Model")
+
+    # 3. Create feature importance table for various predictors
+
+    # Prepare naming of models
+    col_name = []
+    for i in model_feature.keys():
+        col_name.append(model_name[i])
+
+    # Convert feature importances dictionary into dataframe, and tranpose to view feature importance on rows
+    feature_res = pd.DataFrame(
+        data=model_feature.values(), columns=X_test.columns, index=model_feature.keys()
+    ).T
+
+    # Standardize the columns while retaining signs of coefficients using dividing maximal value
+    for col in feature_res.columns:
+        feature_res[col] = feature_res[col] / feature_res[col].max()
+
+    # Calculate weighted feature importance using a myriad of models based on their performance
+    weighted_feature = sum(
+        [feature_res[col].values * score for col, score in list(model_score.items())]
+    )
+
+    # Standardize the weighted_importance column
+    feature_res["Weighted_Importance"] = weighted_feature / np.max(weighted_feature)
+    col_name.append("Weighted_Importance")
+
+    # Renaming the columns to the model's full name
+    feature_res.columns = col_name
+    #    feature_res_returned = feature_res.style.background_gradient(cmap="Greens")
+    feature_res_returned = feature_res
+
+    # 4. View the confusion matrix for details
+    model_cm_df = pd.DataFrame(model_cm, index=["Confusion_Matrix_Summary"]).T
+
+    # Add two more columns for easy observation
+    model_cm_df["Pred_0"] = model_cm_df.Confusion_Matrix_Summary.apply(
+        lambda x: eval(x)["Pr0"]
+    )
+    model_cm_df["Pred_1"] = model_cm_df.Confusion_Matrix_Summary.apply(
+        lambda x: eval(x)["Pr1"]
+    )
+
+    index_name = []
+    for i in model_cm_df.index:
+        index_name.append(model_name[i])
+    model_cm_df.index = index_name
+
+    return score_df, score_dict_highest, feature_res_returned, model_cm_df, dt
+
+
+# Identify the minimal features that generate highest performance using self-defined strategies.
 def df_minimal_features(
         df,
         train_index,
         test_index,
         baseline_features=set(),
         strategy="forward",
-        inspection_max=300, # Times of iteration to search for minimal feature set
+        inspection_max=300,  # Times of iteration to search for minimal feature set
         estimator=LogisticRegression(class_weight="balanced"),
         scoring_func=average_precision_score,
 ):
@@ -1766,353 +2800,6 @@ def ml_run(X_train, X_test, y_train, y_test, scoring_func=f1_score, importance_s
     score_df = pd.DataFrame(score_dict).set_index("Model")
 
     return score_df, model_score, model_cm, model_feature, dt
-
-
-# An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
-# An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
-def df_ml_run(
-        df_train_eval,
-        df_holdout,
-        feature_columns,
-        target_name,
-        scalar=MinMaxScaler(),
-        scoring_func=average_precision_score,
-        importance_scoring="average_precision",
-):
-    """
-    Fast run of a myriad of models and return three very informative dataframes (confusion matrix dataframe,  model performance dataframe
-    and colored feature importance dataframe) and one decision tree for visualization
-
-    :param scoring_func: a predefined function, default: f1_score
-        model_scoring has to be one of accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
-        since it must have the same name of sklearn.metrics functions
-
-    :param importance_scoring: string, default: f1
-        importance_scoring has to be one of 'accuracy', 'f1', 'precision', 'recall', 'roc_auc',"average_precision"
-        since it must be recognizable as a parameter to be put into permutation importance
-
-    :return: Confusion matrix dataframe, model performance, feature importance
-
-    ------------------------
-    Examples:
-    ml_result_tuple = df_ml_run(X_train, X_test, y_train, y_test)
-    """
-    # Reset index to start from 0
-    df_train_eval.reset_index(drop=True, inplace=True)
-    df_holdout.reset_index(drop=True, inplace=True)
-
-    # Generate trainable dataset and corresponding test dataset
-    X_train = df_train_eval[feature_columns]
-    y_train = df_train_eval[target_name]
-    X_test = df_holdout[feature_columns]
-    y_test = df_holdout[target_name]
-
-    scalar.fit(X_train)
-
-    X_train = pd.DataFrame(
-        scalar.transform(X_train), columns=X_train.columns, index=X_train.index
-    )
-
-    X_test = pd.DataFrame(
-        scalar.transform(X_test), columns=X_test.columns, index=X_test.index
-    )
-
-    # A dictionary that will store the performance score of models to evaluate feature importance
-    model_score = {}
-
-    # A dictionary that will store the confusion matrix results as string to easy comparision
-    model_cm = {}
-
-    # A dictionary that will store the feature importance for different models
-    model_feature = {}
-
-    # Initializing the model using desired abbreviated names as model instance to train and test
-
-    # xgb = XGBClassifier(learning_rate=0.01, n_estimators=250)
-    # dt = DecisionTreeClassifier(criterion="entropy", random_state=0, max_depth=6)
-    # rf = RandomForestClassifier(n_estimators=200, random_state=0, max_depth=5)
-    # knn = KNeighborsClassifier(n_neighbors=5)
-    # svc = SVC(kernel="rbf", C=6)
-    # lr = LogisticRegression()
-    nb = GaussianNB()
-    svc = SVC(class_weight="balanced", probability=True)
-    knn = KNeighborsClassifier(n_neighbors=5)
-    lr = LogisticRegression(class_weight="balanced")
-    rf = RandomForestClassifier(class_weight="balanced", random_state=0)
-    xgb = XGBClassifier(class_weight="balanced")
-    dt = DecisionTreeClassifier(
-        criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
-    )
-
-    # A dictionary that stores the full name of model
-    model_name = {
-        "knn": "K_Nearest_Neigbhors",
-        "xgb": "eXtreme_Gradient_Boost",
-        "svc": "Support_Vector_Machine",
-        "dt": "Decision_Tree",
-        "rf": "Random_Forest",
-        "nb": "Naive_Bayes",
-        "lr": "Logistic_Regression",
-    }
-
-    permutation_importance_list = [(knn, "knn"), (svc, "svc"), (nb, "nb")]
-    feature_importance_list = [(dt, "dt"), (rf, "rf"), (xgb, "xgb")]
-    coefficient_list = [(lr, "lr")]
-
-    model_list = (
-            permutation_importance_list + feature_importance_list + coefficient_list
-    )
-
-    # 1. Search for most effective predictive models and relevant feature importance
-    for model, key in model_list:
-
-        # Train and predict
-        model.fit(X_train, y_train)
-        predicted = model.predict(X_test)
-
-        # Store result
-        if (importance_scoring == "average_precision") or (
-                importance_scoring == "roc_auc"
-        ):
-            model_score[key] = scoring_func(y_test, model.predict_proba(X_test)[:, 1])
-        else:
-            model_score[key] = scoring_func(y_test, predicted)
-
-        model_cm[key] = str(
-            {
-                k: dict(v)
-                for k, v in dict(
-                pd.DataFrame(
-                    confusion_matrix(y_test, predicted),
-                    columns=["Pr0", "Pr1"],
-                    index=["Tr0", "Tr1"],
-                )
-            ).items()
-            }
-        )
-        # Display model result
-        print(f"confussion matrix: {confusion_matrix(y_test, predicted)}\n")
-        plot_confusion_matrix(model, X_test, y_test)
-        print(
-            f"The {importance_scoring} score of {model_name[key]}: {model_score[key] * 100} \n"
-        )
-        print(classification_report(y_test, predicted))
-
-        # Permutation importance
-        if (model, key) in permutation_importance_list:
-
-            # Evaluating Feature importance
-            permutation_result = permutation_importance(
-                model,
-                X_train,
-                y_train,
-                n_repeats=10,
-                random_state=1012,
-                scoring=importance_scoring,
-            )
-
-            # Storing feature importance
-            model_feature[key] = permutation_result.importances_mean.reshape(1, -1)[0]
-
-            # Visualization of feature importance for permutation importance
-            perm_sorted_idx = permutation_result.importances_mean.argsort()
-            plt.figure(figsize=(20, 10))
-            plt.title("Feature Importance for {}".format(model_name[key]))
-            plt.barh(
-                width=permutation_result.importances_mean[perm_sorted_idx].T,
-                y=X_train.columns[perm_sorted_idx],
-            )
-        # Feature Importance for tree-based models:
-        elif (model, key) in feature_importance_list:
-
-            # Storing feature importance
-            model_feature[key] = model.feature_importances_.reshape(1, -1)[0]
-
-            # Plot visualization of feature importance for tree-based models
-            imp_features = pd.DataFrame(
-                data=model.feature_importances_,
-                index=X_test.columns,
-                columns=[model_name[key]],
-            )
-            imp_features.sort_values(model_name[key], ascending=False, inplace=True)
-            plt.figure(figsize=(12, 8), dpi=200)
-            sns.barplot(
-                data=imp_features,
-                y=imp_features.index,
-                x=imp_features[model_name[key]],
-            )
-
-        # Feature importance for linear-based models:
-        elif (model, key) in coefficient_list:
-
-            # Storing feature importance
-            model_feature[key] = model.coef_.reshape(1, -1)[0]
-
-            # Plot visualization of feature importance for linear models
-            imp_features = pd.DataFrame(
-                data=model.coef_.reshape(1, -1)[0],
-                index=X_test.columns,
-                columns=[model_name[key]],
-            )
-            imp_features.sort_values(model_name[key], ascending=False, inplace=True)
-            plt.figure(figsize=(12, 8), dpi=200)
-            sns.barplot(
-                data=imp_features,
-                y=imp_features.index,
-                x=imp_features[model_name[key]],
-            )
-        else:
-            print(
-                "{} is not found in the model_list, please check".format((model, key))
-            )
-
-    # 2. Put all metrics together for different models
-    score_dict = defaultdict(list)
-    models = [lr, nb, rf, knn, dt, svc, xgb]
-    models_label = [
-        "Logistic Regression",
-        "Naive Bayes",
-        "Random Forest",
-        "K-Nearest Neighbours",
-        "Decision Tree",
-        "Support Vector Machine",
-        "Extreme Gradient Boost",
-    ]
-    measurements = [
-        precision_score,
-        recall_score,
-        f1_score,
-        average_precision_score,
-        roc_auc_score,
-        accuracy_score,
-    ]
-    measurement_names = [
-        "Precision",
-        "Recall",
-        "F1",
-        "Average_precision",
-        "Roc_auc",
-        "Accuracy",
-    ]
-    for i in range(len(models)):
-        score_dict["Model"].append(models_label[i])
-        for j in range(len(measurements)):
-            if "_" in measurement_names[j]:
-                score_dict[measurement_names[j]].append(
-                    measurements[j](y_test, models[i].predict_proba(X_test)[:, 1])
-                )
-            else:
-                score_dict[measurement_names[j]].append(
-                    measurements[j](y_test, models[i].predict(X_test))
-                )
-
-    score_df = pd.DataFrame(score_dict).set_index("Model")
-
-    # Extract highest performing scoring
-    score_dict_highest = defaultdict(list)
-    models = [lr, nb, rf, knn, dt, svc, xgb]
-    models_label = [
-        "Logistic Regression",
-        "Naive Bayes",
-        "Random Forest",
-        "K-Nearest Neighbours",
-        "Decision Tree",
-        "Support Vector Machine",
-        "Extreme Gradient Boost",
-    ]
-    measurements = [
-        precision_score,
-        recall_score,
-        f1_score,
-        average_precision_score,
-        roc_auc_score,
-        accuracy_score,
-        "threshold_positioner",
-    ]
-    measurement_names = [
-        "Precision",
-        "Recall",
-        "F1",
-        "Average_precision",
-        "Roc_auc",
-        "Accuracy",
-        "Threshold",
-    ]
-    for i in range(len(models)):
-        score_dict_highest["Model"].append(models_label[i])
-
-        # Retrieve Threshold and altered Prediction for the calculation of F1, Precision, Recall and Accuracy
-        predicted_proba = models[i].predict_proba(X_test)[:, 1]
-        p, r, threshold = precision_recall_curve(y_test, predicted_proba)
-        f_score = 2 * (p * r) / (p + r)
-        predicted_highest = np.where(
-            predicted_proba >= threshold[f_score.argsort()[-1]], 1, 0
-        )
-        threshold_for_highest = round(threshold[f_score.argsort()[-1]], 2)
-
-        for j in range(len(measurements)):
-            if measurement_names[j] == "Threshold":
-                score_dict_highest[measurement_names[j]].append(
-                    threshold[f_score.argsort()[-1]]
-                )
-            elif "_" in measurement_names[j]:
-                score_dict_highest[measurement_names[j]].append(
-                    measurements[j](y_test, predicted_proba)
-                )
-            else:
-                score_dict_highest[measurement_names[j]].append(
-                    measurements[j](y_test, predicted_highest)
-                )
-
-    score_dict_highest = pd.DataFrame(score_dict_highest).set_index("Model")
-
-    # 3. Create feature importance table for various predictors
-
-    # Prepare naming of models
-    col_name = []
-    for i in model_feature.keys():
-        col_name.append(model_name[i])
-
-    # Convert feature importances dictionary into dataframe, and tranpose to view feature importance on rows
-    feature_res = pd.DataFrame(
-        data=model_feature.values(), columns=X_test.columns, index=model_feature.keys()
-    ).T
-
-    # Standardize the columns while retaining signs of coefficients using dividing maximal value
-    for col in feature_res.columns:
-        feature_res[col] = feature_res[col] / feature_res[col].max()
-
-    # Calculate weighted feature importance using a myriad of models based on their performance
-    weighted_feature = sum(
-        [feature_res[col].values * score for col, score in list(model_score.items())]
-    )
-
-    # Standardize the weighted_importance column
-    feature_res["Weighted_Importance"] = weighted_feature / np.max(weighted_feature)
-    col_name.append("Weighted_Importance")
-
-    # Renaming the columns to the model's full name
-    feature_res.columns = col_name
-    #    feature_res_returned = feature_res.style.background_gradient(cmap="Greens")
-    feature_res_returned = feature_res
-
-    # 4. View the confusion matrix for details
-    model_cm_df = pd.DataFrame(model_cm, index=["Confusion_Matrix_Summary"]).T
-
-    # Add two more columns for easy observation
-    model_cm_df["Pred_0"] = model_cm_df.Confusion_Matrix_Summary.apply(
-        lambda x: eval(x)["Pr0"]
-    )
-    model_cm_df["Pred_1"] = model_cm_df.Confusion_Matrix_Summary.apply(
-        lambda x: eval(x)["Pr1"]
-    )
-
-    index_name = []
-    for i in model_cm_df.index:
-        index_name.append(model_name[i])
-    model_cm_df.index = index_name
-
-    return score_df, score_dict_highest, feature_res_returned, model_cm_df, dt
 
 
 # Given df, X, y holdout, train, test split will be gained
