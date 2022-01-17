@@ -1050,6 +1050,109 @@ def ml_res_visualization(
 
     return ml_res_dict, feature_importance_dict, model_perform_df
 
+def filter_features(x, threshold=0.015):
+    if x <= threshold:
+        x = np.nan
+    return x
+
+
+def feature_progression_merge(
+    ml_res_final,
+    ml_list=["lr", "rf", "xgb", "svc", "dt"],
+    coef_thresh=0.15,
+    featimp_thresh=0.015,
+    permutation_thresh=0.001,
+    how="sum",
+    normalize=True,
+):
+    """
+    params: how, string
+    Available options include: 'sum','avg'
+    """
+    feature_filtered = {}
+    # 1. Filtering
+    for i in ml_list:
+        if i in ["lr"]:
+            feature_filtered[i] = ml_res_final[1][i].applymap(
+                lambda x: filter_features(abs(x), threshold=coef_thresh)
+            )
+        elif i in ["rf", "xgb", "dt"]:
+            feature_filtered[i] = ml_res_final[1][i].applymap(
+                lambda x: filter_features(x, threshold=featimp_thresh)
+            )
+        else:
+            feature_filtered[i] = ml_res_final[1][i].applymap(
+                lambda x: filter_features(x, threshold=permutation_thresh)
+            )
+
+    # 2. Normalization & Filtering out those without values
+    for i in ml_list:
+        for col in feature_filtered[i].columns:
+            feature_filtered[i][col] = feature_filtered[i][col] / max(
+                feature_filtered[i][col].fillna(0)
+            )
+        feature_filtered[i].dropna(how="all", inplace=True)
+
+    # 3. Combination
+    feature_df_merged = pd.DataFrame()
+    for i in ml_list:
+        feature_df_merged = pd.concat([feature_df_merged, feature_filtered[i]])
+
+    if how == "sum":
+        feature_df_merged = (
+            feature_df_merged.reset_index().groupby("index").sum().replace({0: np.nan})
+        )
+    elif how == "avg":
+        feature_df_merged = (
+            feature_df_merged.reset_index().groupby("index").mean().replace({0: np.nan})
+        )
+    else:
+        print("Wrong paramters for 'how'")
+
+    feature_df_merged.sort_values(
+        by=list(feature_df_merged.columns),
+        ascending=[False, False, False, False],
+        inplace=True,
+    )
+
+    if normalize:
+        for col in feature_df_merged.columns:
+            feature_df_merged[col] = feature_df_merged[col] / max(
+                feature_df_merged[col].fillna(0)
+            )
+
+    # For Visualization Only
+    ml_final_features = feature_df_merged.copy()
+
+    # Rename Feature Names
+    ml_final_features.index = [i.replace("_", " ") for i in ml_final_features.index]
+    ml_final_features.columns = [
+        i.replace("_", " ").capitalize() for i in ml_final_features.columns
+    ]
+    ml_final_features.index.set_names("Features", inplace=True)
+    ml_final_features.rename_axis("Time Point", axis="columns", inplace=True)
+
+    # Set Figure Size
+    plt.figure(figsize=(12, 32))
+    g = sns.heatmap(
+        ml_final_features,
+        cmap="vlag",
+        center=0,
+        vmax=1,
+        vmin=0,
+        linewidths=0.05,
+        annot=True,
+        linecolor="lightgrey",
+        cbar_kws={"shrink": 0.45},
+    )
+    g.xaxis.set_ticks_position("top")
+    g.xaxis.set_label_position("top")
+
+    plt.savefig("../output/Feature_Importance_Final.pdf", dpi=150)
+
+    return feature_df_merged
+
+
 
 
 # View the highest performed features for various machine learning models
