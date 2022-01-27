@@ -2,7 +2,7 @@ __author__ = 'Stan He@Sickkids.ca'
 __contact__ = 'stan.he@sickkids.ca'
 __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
-            '2022-01-12']
+            '2022-01-12', '2022-01-27']
 
 """Gadgets for various tasks 
 """
@@ -58,6 +58,8 @@ from sklearn.tree import DecisionTreeClassifier, export_graphviz
 from xgboost import XGBClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
+
+from sklearn.ensemble import StackingClassifier, VotingClassifier
 
 from sklearn.inspection import permutation_importance
 from sklearn.model_selection import PredefinedSplit, StratifiedKFold, LeaveOneOut
@@ -1152,8 +1154,233 @@ def feature_progression_merge(
 
     return feature_df_merged
 
+# Calculate and visualize the ensemble model performance at different time points with input of merged feature dataframe
+def ml_ensemble_res(df_train_eval, df_holdout, ml_merged_features, scalar=MinMaxScaler(), threshold_for_selection=0.1):
+    """
+    Use the selected feature at different time points from merged feature table to create multiple ensemble models.
+    :param df_train_eval
+    :param df_holdout
+    :param ml_merged_features: DataFrame, result of the function "feature_progression_merge()"
+    :param scalar: to process the train, eval, holdout dataset
+    :param threshold_for_selection: float between 0 to 1, used to select features of importance at different time point
+    :return: Dataframe to overview the ensemble performance with visualization of ensemble performance
+    """
+    # Features collection extracted using merged feature table at different time points
+    feature_dict = {}
+    for i in ml_merged_features.columns: # Columns are time points
+        feature_dict[i] = list(ml_merged_features[i][ml_merged_features[i] > threshold_for_selection].index)
+
+    # Set parameters of the individual estimators
+    ensemble_collections = [
+        ("lr", LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")),
+        (
+            "rf",
+            RandomForestClassifier(
+                n_estimators=100,
+                class_weight="balanced",
+                max_depth=3,
+                max_features=5,
+                random_state=2021,
+            ),
+        ),
+        (
+            "xgb",
+            XGBClassifier(
+                max_depth=3,
+                learning_rate=0.01,
+                colsample_bytree=0.8,
+                scale_pos_weight=15,
+                subsample=0.8,
+                random_state=2021,
+            ),
+        ),
+        (
+            "svc",
+            SVC(
+                C=0.02,
+                kernel="linear",
+                class_weight="balanced",
+                probability=True,
+                random_state=2021,
+            ),
+        ),
+        (
+            "dt",
+            DecisionTreeClassifier(
+                criterion="gini",
+                max_depth=6,  # Previous is None
+                class_weight="balanced",
+                random_state=2021,
+            ),
+        ),
+    ]
+    ensemble_weights = [0.25, 0.35, 0.2, 0.15, 0.05]
+
+    # Define a series of ensemble algorithms
+    # Voting Hard, Soft, Weighted, Uniformed
+
+    soft_vote = VotingClassifier(estimators=ensemble_collections, voting="soft")
+    hard_vote = VotingClassifier(estimators=ensemble_collections, voting="hard")
+    weighted_soft = VotingClassifier(
+        estimators=ensemble_collections, weights=ensemble_weights, voting="soft"
+    )
+    weighted_hard = VotingClassifier(
+    estimators=ensemble_collections, weights=ensemble_weights, voting="hard")
 
 
+    # Stacking LR, RF, XGB, SVC, DT
+    stacking_xgb = StackingClassifier(
+    estimators=ensemble_collections, final_estimator=XGBClassifier(random_state=2021)
+)
+    stacking_svc = StackingClassifier(estimators=ensemble_collections, final_estimator=SVC(random_state=2021, probability=True))
+    stacking_rf = StackingClassifier(
+    estimators=ensemble_collections, final_estimator=RandomForestClassifier(random_state=2021)
+)
+    stacking_lr = StackingClassifier(
+        estimators=ensemble_collections, final_estimator=LogisticRegression(random_state=2021)
+    )
+    stacking_dt = StackingClassifier(
+        estimators=ensemble_collections, final_estimator=DecisionTreeClassifier(random_state=2021)
+    )
+
+    ensemble_algorithms = { "hard_vote":hard_vote, "soft_vote":soft_vote,
+                            'weighted_hard':weighted_hard, 'weighted_soft':weighted_soft,
+                            'stacking_lr':stacking_lr,'stacking_rf':stacking_rf,
+                            'stacking_xgb':stacking_xgb,'stacking_svc':stacking_svc,
+                            'stacking_dt':stacking_dt}
+    ensemble_res_dict = {}
+
+    for ens_name,ens_clf in ensemble_algorithms.items():
+        ensemble_res = {}
+        if "hard" in ens_name:
+            for timepoint in feature_dict.keys():
+                ensemble_res[timepoint] = model_result_holdout(
+                    df_train_eval,
+                    df_holdout,
+                    feature_columns_selected=feature_dict[timepoint],
+                    target_name="Asthma_Diagnosis_5yCLA",
+                    estimator=ens_clf,
+                    scalar=scalar,
+                    voting="hard",
+                )
+            ensemble_res_dict[ens_name] = ensemble_res
+        else:
+            for timepoint in feature_dict.keys():
+                ensemble_res[timepoint] = model_result_holdout(
+                    df_train_eval,
+                    df_holdout,
+                    feature_columns_selected=feature_dict[timepoint],
+                    target_name="Asthma_Diagnosis_5yCLA",
+                    estimator=ens_clf,
+                    scalar=scalar,
+                    voting=None,
+                )
+            ensemble_res_dict[ens_name] = ensemble_res
+
+    ensemble_res_perf = {}
+    model_multiindex = []
+    model_metrics = [
+        "Precision",
+        "Recall",
+        "F1",
+        "Average_precision",
+        "Roc_auc",
+        "Support",
+    ]
+    for ensemble_name in ensemble_res_dict.keys():
+        for timepoint in ensemble_res_dict[ensemble_name].keys():
+            if "hard" in ensemble_name:
+                ensemble_res_perf[ensemble_name + "-" + timepoint] = [
+                    ensemble_res_dict[ensemble_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][0],
+                    ensemble_res_dict[ensemble_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][1],
+                    ensemble_res_dict[ensemble_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][2],
+                    np.nan,
+                    np.nan,
+                    ensemble_res_dict[ensemble_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][3],
+                ]
+
+            else:
+                ensemble_res_perf[ensemble_name + "-" + timepoint] = [
+                    ensemble_res_dict[ensemble_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][0],
+                    ensemble_res_dict[ensemble_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][1],
+                    ensemble_res_dict[ensemble_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][2],
+                    ensemble_res_dict[ensemble_name][timepoint][0][
+                        "average_precision_score"
+                    ],
+                    ensemble_res_dict[ensemble_name][timepoint][0]["roc_auc_score"],
+                    ensemble_res_dict[ensemble_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][3],
+                ]
+
+            model_multiindex.append(
+                (
+                    ensemble_name.replace("_", " ").capitalize(),
+                    timepoint.replace("_", " ").title(),
+                )
+            )
+
+    ensemble_model_performance = pd.DataFrame(ensemble_res_perf, index=model_metrics).T
+    ensemble_model_performance.index = pd.MultiIndex.from_tuples(
+        model_multiindex, names=["Model", "Time Point"]
+    )
+
+    return ensemble_model_performance
+
+
+# Visualize the individual model performance & feature importance table at different time points
+def ml_individual_performance(df_train_eval,
+        df_holdout,
+        ml_merged_features,
+        threshold_for_selection=0.1,
+        target_name="Asthma_Diagnosis_5yCLA",
+        scalar=MinMaxScaler(),
+        scoring_func=average_precision_score,
+        importance_scoring="average_precision"):
+
+    # Features collection extracted using merged feature table at different time points
+    feature_dict = {}
+    for i in ml_merged_features.columns: # Columns are time points
+        feature_dict[i] = list(ml_merged_features[i][ml_merged_features[i] > threshold_for_selection].index)
+
+    timepoint_res_dict = {}
+
+    # Obtain the model performance
+    for timepoint in feature_dict.keys():
+        timepoint_res_dict[timepoint] = df_ml_run(
+            df_train_eval,
+            df_holdout,
+            feature_columns=feature_dict[timepoint],
+            target_name=target_name,
+            scalar=scalar,
+            scoring_func=scoring_func,
+            importance_scoring=importance_scoring,
+        )
+
+    # Visualize the performance and feature importance
+    for timepoint in feature_dict.keys():
+        print("Model performance and Feature Importance", timepoint.upper())
+        timepoint_res_dict[timepoint][0].style.background_gradient(cmap="Greens")
+        timepoint_res_dict[timepoint][2].sort_values(
+            by="Weighted_Importance", ascending=False, inplace=True
+        )
+        timepoint_res_dict[timepoint][2].style.background_gradient(cmap="Greens")
+
+    return timepoint_res_dict
 
 # View the highest performed features for various machine learning models
 def ml_feature_selection(
@@ -1323,16 +1550,17 @@ def ml_feature_selection(
 
 # Final Model Performance - Holdout Result View
 def model_result_holdout(
-        df_train_eval,
-        df_holdout,
-        feature_columns_selected,
-        target_name,
-        random_state_for_eval_split=123,
-        eval_positive_number=30,
-        eval_negative_number=150,
-        train_eval_separation_to_fit=False,
-        estimator=LogisticRegression(class_weight="balanced"),
-        scalar=MinMaxScaler(),
+    df_train_eval,
+    df_holdout,
+    feature_columns_selected,
+    target_name,
+    random_state_for_eval_split=123,
+    eval_positive_number=30,
+    eval_negative_number=150,
+    train_eval_separation_to_fit=False,
+    estimator=LogisticRegression(class_weight="balanced"),
+    scalar=MinMaxScaler(),
+    voting=None,
 ):
     """
     Perform model performance test on holdout dataset with trained model with given feature columns. Dataframe
@@ -1361,13 +1589,13 @@ def model_result_holdout(
         eval_positive_index = np.random.RandomState(
             random_state_for_eval_split
         ).permutation(df_train_eval[df_train_eval[target_name] == 1].index)[
-                              :eval_positive_number
-                              ]
+            :eval_positive_number
+        ]
         eval_negative_index = np.random.RandomState(
             random_state_for_eval_split
         ).permutation(df_train_eval[df_train_eval[target_name] == 0].index)[
-                              :eval_negative_number
-                              ]
+            :eval_negative_number
+        ]
 
         eval_index = set(list(eval_positive_index) + list(eval_negative_index))
         whole_index = set(df_train_eval.index)
@@ -1402,51 +1630,52 @@ def model_result_holdout(
     holdout_result = {}
     holdout_result["y_true_holdout"] = y_holdout
     holdout_result["y_predicted_holdout"] = estimator.predict(X_holdout)
-    holdout_result["y_predicted_prob_holdout"] = estimator.predict_proba(X_holdout)
     holdout_result["precision_recall_f1_support"] = np.array(
         precision_recall_fscore_support(
             y_holdout, holdout_result["y_predicted_holdout"], labels=[0, 1]
         )
     )
-    holdout_result["average_precision_score"] = average_precision_score(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-    )
-    holdout_result["roc_auc_score"] = roc_auc_score(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-    )
-    holdout_result["precision_recall_threshold"] = precision_recall_curve(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-    )
-    p, r, threshold = precision_recall_curve(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-    )
-    minimal_divider_buffer = 0.00000001
-    f_score = 2 * (p * r) / (p + r + minimal_divider_buffer)
-    holdout_result["highest_f1_and_threshold"] = (
-        f_score[f_score.argsort()[-1]],
-        threshold[f_score.argsort()[-1]],
-    )
-    holdout_result["y_predicted_holdout_altered_threshold"] = np.where(
-        holdout_result["y_predicted_prob_holdout"][:, 1]
-        >= threshold[f_score.argsort()[-1]],
-        1,
-        0,
-    )
+    if voting != "hard":
+        holdout_result["y_predicted_prob_holdout"] = estimator.predict_proba(X_holdout)
+        holdout_result["average_precision_score"] = average_precision_score(
+            y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+        )
+        holdout_result["roc_auc_score"] = roc_auc_score(
+            y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+        )
+        holdout_result["precision_recall_threshold"] = precision_recall_curve(
+            y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+        )
+        p, r, threshold = precision_recall_curve(
+            y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+        )
+        minimal_divider_buffer = 0.00000001
+        f_score = 2 * (p * r) / (p + r + minimal_divider_buffer)
+        holdout_result["highest_f1_and_threshold"] = (
+            f_score[f_score.argsort()[-1]],
+            threshold[f_score.argsort()[-1]],
+        )
+        holdout_result["y_predicted_holdout_altered_threshold"] = np.where(
+            holdout_result["y_predicted_prob_holdout"][:, 1]
+            >= threshold[f_score.argsort()[-1]],
+            1,
+            0,
+        )
+
+        # Plotting
+        display = PrecisionRecallDisplay.from_predictions(
+            y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+        )
+        _ = display.ax_.set_title(f"{estimator}")
+
+        display = RocCurveDisplay.from_predictions(
+            y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+        )
+        _ = display.ax_.set_title(f"{estimator}")
+        plt.plot([0, 1], [0, 1], color="red", lw=2, linestyle="--")
 
     # Print out result
     print(classification_report(y_holdout, holdout_result["y_predicted_holdout"]))
-
-    # Plotting
-    display = PrecisionRecallDisplay.from_predictions(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-    )
-    _ = display.ax_.set_title(f"{estimator}")
-
-    display = RocCurveDisplay.from_predictions(
-        y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-    )
-    _ = display.ax_.set_title(f"{estimator}")
-    plt.plot([0, 1], [0, 1], color="red", lw=2, linestyle="--")
 
     display = ConfusionMatrixDisplay.from_predictions(
         y_holdout, holdout_result["y_predicted_holdout"]
@@ -1522,16 +1751,50 @@ def df_ml_run(
     # knn = KNeighborsClassifier(n_neighbors=5)
     # svc = SVC(kernel="rbf", C=6)
     # lr = LogisticRegression()
-    nb = GaussianNB()
-    svc = SVC(class_weight="balanced", probability=True)
-    knn = KNeighborsClassifier(n_neighbors=5)
-    lr = LogisticRegression(class_weight="balanced")
-    rf = RandomForestClassifier(class_weight="balanced", random_state=0)
-    xgb = XGBClassifier(class_weight="balanced")
-    dt = DecisionTreeClassifier(
-        criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
+    # nb = GaussianNB()
+    # svc = SVC(class_weight="balanced", probability=True)
+    # knn = KNeighborsClassifier(n_neighbors=5)
+    # lr = LogisticRegression(class_weight="balanced")
+    # rf = RandomForestClassifier(class_weight="balanced", random_state=0)
+    # xgb = XGBClassifier(class_weight="balanced")
+    # dt = DecisionTreeClassifier(
+    #     criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
+    # )
+    lr = LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")
+
+    # Random Forest
+    rf = RandomForestClassifier(
+        n_estimators=100,
+        class_weight="balanced",
+        max_depth=3,
+        max_features=5,
+        random_state=2021,
     )
 
+    # XGB
+    xgb = XGBClassifier(
+        max_depth=3,
+        learning_rate=0.01,
+        colsample_bytree=0.8,
+        scale_pos_weight=15,
+        subsample=0.8,
+        random_state=2021,
+    )
+    # SVC
+    svc = SVC(
+        C=0.02,
+        kernel="linear",
+        class_weight="balanced",
+        probability=True,
+        random_state=2021,
+    )
+    # Decision Tree
+    dt = DecisionTreeClassifier(
+        criterion="gini",
+        max_depth=6,  # Previous is None
+        class_weight="balanced",
+        random_state=2021,
+    )
     # A dictionary that stores the full name of model
     model_name = {
         "knn": "K_Nearest_Neigbhors",
@@ -1543,7 +1806,8 @@ def df_ml_run(
         "lr": "Logistic_Regression",
     }
 
-    permutation_importance_list = [(knn, "knn"), (svc, "svc"), (nb, "nb")]
+    permutation_importance_list = [(svc, "svc")]
+#    permutation_importance_list = [(knn, "knn"), (svc, "svc"), (nb, "nb")]
     feature_importance_list = [(dt, "dt"), (rf, "rf"), (xgb, "xgb")]
     coefficient_list = [(lr, "lr")]
 
@@ -1656,16 +1920,26 @@ def df_ml_run(
 
     # 2. Put all metrics together for different models
     score_dict = defaultdict(list)
-    models = [lr, nb, rf, knn, dt, svc, xgb]
+    # models = [lr, nb, rf, knn, dt, svc, xgb]
+    # models_label = [
+    #     "Logistic_Regression",
+    #     "Naive_Bayes",
+    #     "Random_Forest",
+    #     "K_Nearest_Neigbhors",
+    #     "Decision_Tree",
+    #     "Support_Vector_Machine",
+    #     "eXtreme_Gradient_Boost",
+    # ]
+
+    models = [lr, rf, xgb, svc,dt]
     models_label = [
         "Logistic_Regression",
-        "Naive_Bayes",
         "Random_Forest",
-        "K_Nearest_Neigbhors",
-        "Decision_Tree",
-        "Support_Vector_Machine",
         "eXtreme_Gradient_Boost",
+        "Support_Vector_Machine",
+        "Decision_Tree",
     ]
+
     measurements = [
         precision_score,
         recall_score,
@@ -1698,16 +1972,16 @@ def df_ml_run(
 
     # Extract highest performing scoring
     score_dict_highest = defaultdict(list)
-    models = [lr, nb, rf, knn, dt, svc, xgb]
-    models_label = [
-        "Logistic_Regression",
-        "Naive_Bayes",
-        "Random_Forest",
-        "K_Nearest_Neigbhors",
-        "Decision_Tree",
-        "Support_Vector_Machine",
-        "eXtreme_Gradient_Boost",
-    ]
+    # models = [lr, nb, rf, knn, dt, svc, xgb]
+    # models_label = [
+    #     "Logistic_Regression",
+    #     "Naive_Bayes",
+    #     "Random_Forest",
+    #     "K_Nearest_Neigbhors",
+    #     "Decision_Tree",
+    #     "Support_Vector_Machine",
+    #     "eXtreme_Gradient_Boost",
+    # ]
     measurements = [
         precision_score,
         recall_score,
