@@ -1,6 +1,6 @@
 __author__ = 'Stan He@Sickkids.ca'
 __contact__ = 'stan.he@sickkids.ca'
-__date__ = '2021-10-15'
+__date__ = ['2021-10-15', '2022-02-04']
 """Preprocessing pipeline components
 """
 
@@ -10,6 +10,8 @@ import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 import sklearn.neighbors._base
 import sys
+
+from IPython.display import display as dispdf
 
 sys.modules["sklearn.neighbors.base"] = (
     sklearn.neighbors._base)  # To conquer the version naming conflict for use of missingpy
@@ -49,15 +51,31 @@ class ApgarTransformer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
-        for coln in SUB_NUM_ORDINAL:
+        if "Apgar_Score_1min" in X.columns:
             if self.engineer_type == "Ordinal":
-                X[coln] = pd.cut(
-                    X[coln],
+                X["Apgar_Score_1min"] = pd.cut(
+                    X["Apgar_Score_1min"],
                     [-1, 3.5, 6.5, 11],
                     labels=["Critical_Low", "Below_Normal", "Normal"],
                 )
             elif self.engineer_type == "Log1p":
-                X[coln] = np.log1p(X[coln])
+                X["Apgar_Score_1min"] = np.log1p(X["Apgar_Score_1min"])
+            elif self.engineer_type == "None":
+                pass
+            else:
+                print(
+                    "The engineer_type you've entered is not valid. No engineering will be performed"
+                )
+                print("Valid inputs include 'Ordinal','Log1p','None'")
+        if "Apgar_Score_5min" in X.columns:
+            if self.engineer_type == "Ordinal":
+                X["Apgar_Score_5min"] = pd.cut(
+                    X["Apgar_Score_5min"],
+                    [-1, 3.5, 6.5, 11],
+                    labels=["Critical_Low", "Below_Normal", "Normal"],
+                )
+            elif self.engineer_type == "Log1p":
+                X["Apgar_Score_5min"] = np.log1p(X["Apgar_Score_5min"])
             elif self.engineer_type == "None":
                 pass
             else:
@@ -112,67 +130,134 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
 
     def transform(self, X, y=None):
 
+        bimode_birth_dict = {
+            1.0: "Vaginal",
+            2.0: "Vaginal",
+            3.0: "Vaginal",
+            4.0: "Vaginal",
+            6.0: "Caesarean",
+            7.0: "Caesarean",
+            8.0: "Caesarean",
+            9.0: "Caesarean",
+            11.0: "Vaginal",
+        }
+        multimode_birth_dict = {
+            1.0: "Vaginal_Unassisted",
+            2.0: "Vaginal_Assisted",
+            3.0: "Vaginal_Vacuum_Extracted",
+            4.0: "Vaginal_Breech",
+            6.0: "Elective_Caesarean",
+            7.0: "Caesarean_during_Labor",
+            8.0: "Emergency_Caesarean_with_Labor",
+            9.0: "Emergency_Caesarean_without_Labor",
+            11.0: "Vaginal_with_Episiotomy",
+        }
+
+        binary_conditions_dict = {
+            "Gestational Diabetes": 1,  # No. of "Gestational Diabetes": 107
+            "Cardiac Disorder": 1,  # No. of Cardiac Disorder 9,
+            "Other": 1,  # Total No. of other 699
+            "Hypertension": 1,  # No. of all hypertension: 130
+            "Hypotension": 1,  # No. = 5
+            "Infections": 1,  # No. = 84
+            "Bleeding": 0,  # No. = 174
+            "Nausea": 0,  # No. = 551
+            "None": 0,  # No. 1206
+        }
+
+        triple_conditions_dict = {
+            "Gestational Diabetes": 2,  # No. of "Gestational Diabetes": 107
+            "Cardiac Disorder": 2,  # No. of Cardiac Disorder 9,
+            "Other": 1,  # Total No. of other 699
+            "Hypertension": 1,  # No. of all hypertension: 130
+            "Hypotension": 1,  # No. = 5
+            "Infections": 1,  # No. = 84
+            "Bleeding": 0,  # No. = 174
+            "Nausea": 0,  # No. = 551
+            "None": 0,  # No. 1206
+        }
+
+        first10min_suction_dict = {
+            "Intubation": 4,  # No. of intubation is 39
+            "Mask": 2,  # No. of Mask is 65
+            "Positive Pressure Ventilation": 1,  # No. of Positive Ventilation 81
+            "Free Flow Oxygen": 1,  # No. of Free Flow Oxygen 87
+            "Perineum suction": 1,  # No. of Perineum suction 30
+            "Suction": 0.5,  # No. of Suction 415
+            "None": 0,
+        }
+
+        first10min_nosuction_dict = {
+            "Intubation": 2,  # No. of intubation is 39
+            "Mask": 1,  # No. of Mask is 65
+            "Positive Pressure Ventilation": 0,  # No. of Positive Ventilation 81
+            "Free Flow Oxygen": 0,  # No. of Free Flow Oxygen 87
+            "Perineum suction": 0,  # No. of Perineum suction 30
+            "Suction": 0,  # No. of Suction 415
+            "None": 0,
+        }
+
+        birth_mode_engioverview = pd.concat(
+            [
+                pd.DataFrame.from_dict(
+                    multimode_birth_dict, orient="index", columns=["Multimode_birth_engi"]
+                ),
+                pd.DataFrame.from_dict(
+                    bimode_birth_dict, orient="index", columns=["Bimode_birth_engi"]
+                ),
+            ],
+            axis=1,
+        )
+
+        f10min_measure_engioverview = pd.concat(
+            [
+                pd.DataFrame.from_dict(
+                    first10min_suction_dict, orient="index", columns=["First10min_suction_engi"]
+                ),
+                pd.DataFrame.from_dict(
+                    first10min_nosuction_dict,
+                    orient="index",
+                    columns=["First10min_nosuction_engi"],
+                ),
+            ],
+            axis=1,
+        )
+
+        pregn_conditions_engioverview = pd.concat(
+            [
+                pd.DataFrame.from_dict(
+                    binary_conditions_dict, orient="index", columns=["Binary_conditions_engi"]
+                ),
+                pd.DataFrame.from_dict(
+                    triple_conditions_dict, orient="index", columns=["Triple_conditions_engi"]
+                ),
+            ],
+            axis=1,
+        )
+
+        print("Please see the following dataframe for engineer details:")
+
+        dispdf(birth_mode_engioverview)
+        dispdf(f10min_measure_engioverview)
+        dispdf(pregn_conditions_engioverview)
+
         if 'Mode_of_delivery' in X.columns:
             if self.bimode_delivery:
-                X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(
-                    {
-                        1.0: "Vaginal",
-                        2.0: "Vaginal",
-                        3.0: "Vaginal",
-                        4.0: "Vaginal",
-                        6.0: "Caesarean",
-                        7.0: "Caesarean",
-                        8.0: "Caesarean",
-                        9.0: "Caesarean",
-                        11.0: "Vaginal",
-                    }
-                )
+                X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(bimode_birth_dict)
             else:
-                X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(
-                    {
-                        1.0: "Vaginal_Unassisted",
-                        2.0: "Vaginal_Assisted",
-                        3.0: "Vaginal_Vacuum_Extracted",
-                        4.0: "Vaginal_Breech",
-                        6.0: "Elective_Caesarean",
-                        7.0: "Caesarean_during_Labor",
-                        8.0: "Emergency_Caesarean_with_Labor",
-                        9.0: "Emergency_Caesarean_without_Labor",
-                        11.0: "Vaginal_with_Episiotomy",
-                    }
-                )
+                X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(multimode_birth_dict)
 
         if "Prenatal_Mother_Condition" in X.columns:
             if self.binary_pregnancy_conditions:
                 X["Prenatal_Mother_Condition"] = X["Prenatal_Mother_Condition"].replace(
-                    {
-                        "Gestational Diabetes": 1,  # No. of "Gestational Diabetes": 107
-                        "Cardiac Disorder": 1,  # No. of Cardiac Disorder 9,
-                        "Other": 1,  # Total No. of other 699
-                        "Hypertension": 1,  # No. of all hypertension: 130
-                        "Hypotension": 1,  # No. = 5
-                        "Infections": 1,  # No. = 84
-                        "Bleeding": 0,  # No. = 174
-                        "Nausea": 0,  # No. = 551
-                        "None": 0,  # No. 1206
-                    },
+                    binary_conditions_dict,
                     regex=True,
                     # Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
                 )
 
             else:
                 X["Prenatal_Mother_Condition"] = X["Prenatal_Mother_Condition"].replace(
-                    {
-                        "Gestational Diabetes": 2,  # No. of "Gestational Diabetes": 107
-                        "Cardiac Disorder": 2,  # No. of Cardiac Disorder 9,
-                        "Other": 1,  # Total No. of other 699
-                        "Hypertension": 1,  # No. of all hypertension: 130
-                        "Hypotension": 1,  # No. = 5
-                        "Infections": 1,  # No. = 84
-                        "Bleeding": 0,  # No. = 174
-                        "Nausea": 0,  # No. = 551
-                        "None": 0,  # No. 1206
-                    },
+                    triple_conditions_dict,
                     regex=True,
                     # Note: Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
                 )
@@ -180,29 +265,13 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
         if "First_10min_Measure" in X.columns:
             if self.signal_suction:
                 X["First_10min_Measure"] = X["First_10min_Measure"].replace(
-                    {
-                        "Intubation": 4,  # No. of intubation is 39
-                        "Mask": 2,  # No. of Mask is 65
-                        "Positive Pressure Ventilation": 1,  # No. of Positive Ventilation 81
-                        "Free Flow Oxygen": 1,  # No. of Free Flow Oxygen 87
-                        "Perineum suction": 1,  # No. of Perineum suction 30
-                        "Suction": 0.5,  # No. of Suction 415
-                        "None": 0,
-                    },
+                    first10min_suction_dict,
                     regex=True,
                     # Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
                 )
             else:
                 X["First_10min_Measure"] = X["First_10min_Measure"].replace(
-                    {
-                        "Intubation": 2,  # No. of intubation is 39
-                        "Mask": 1,  # No. of Mask is 65
-                        "Positive Pressure Ventilation": 0,  # No. of Positive Ventilation 81
-                        "Free Flow Oxygen": 0,  # No. of Free Flow Oxygen 87
-                        "Perineum suction": 0,  # No. of Perineum suction 30
-                        "Suction": 0,  # No. of Suction 415
-                        "None": 0,
-                    },
+                    first10min_nosuction_dict,
                     regex=True,
                     # Regex is True: Replace happens if there is a match (str.contains). False: Only exact match.
                 )

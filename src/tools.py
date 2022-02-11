@@ -2,7 +2,7 @@ __author__ = 'Stan He@Sickkids.ca'
 __contact__ = 'stan.he@sickkids.ca'
 __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
-            '2022-01-12', '2022-01-27']
+            '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11']
 
 """Gadgets for various tasks 
 """
@@ -47,6 +47,9 @@ from sklearn.metrics import (
     plot_confusion_matrix,
     precision_recall_fscore_support,
 )
+
+from tqdm.notebook import tqdm
+from sklearn.utils import resample
 
 from sklearn.metrics import (precision_recall_curve, PrecisionRecallDisplay)
 from sklearn.metrics import RocCurveDisplay, ConfusionMatrixDisplay
@@ -302,6 +305,113 @@ def features_four_timepoint(df):
     return feature_fourtime_dict
 
 
+# Create four types for clinical applications. grouped_feature_generator will be applied, Based on Theo Moraes medical viewwpoint
+def features_four_types(df):
+    features_all_types, _, _, _ = grouped_feature_generator(df)
+    feature_fourtype_dict = {}
+
+    # Define Genetic Variables
+    gen_1 = features_all_types["7_parental"] - {"Prenatal_Mother_Condition"}
+    gen_2 = {
+        "Child_Ethinicity_Caucasian",
+        "Child_Ethinicity_HalfCaucas",
+        "Child_Ethinicity_NonCaucas",
+    }
+    feature_fourtype_dict["genetic"] = gen_1 | gen_2
+
+    # Define Clinic Variables
+    cli_1 = features_all_types["9_wheeze"] - {"Wheeze_Father", "Wheeze_Mother"}
+    cli_1 = {
+        i
+        for i in cli_1
+        if (
+            ("_4y" not in i)
+            & ("_5y" not in i)
+            & ("5yCLA" not in i)
+            & ("Traj_Type" not in i)
+        )
+    }
+
+    cli_2 = {i for i in features_all_types["13_remainder"] if "5yCLA" not in i} - {
+        "Asthma_Diagnosis_3yCLA",
+        "Triggered_Asthma_3yCLA",
+        "Viral_Asthma_3yCLA",
+    }
+    cli_3 = {
+        "Apgar_Score_1min",
+        "Apgar_Score_5min",
+        "Child_Atopy_1y",
+        "Child_Atopy_3y",
+        "Child_Food_1y",
+        "Child_Food_3y",
+        "Child_Inhalant_1y",
+        "Child_Inhalant_3y",
+        "Complications_Birth",
+        "Gender_M",
+        "Gest_Days",
+        "Jaundice_Birth",
+        "Stay_Duration_Hospital",
+    }
+
+    cli_4 = features_all_types["1_weight"] - {"Weight_60m"}
+
+    feature_fourtype_dict["clinic"] = (
+        features_all_types["3_first10min"]
+        | features_all_types["10_resp"]
+        | cli_1
+        | cli_2
+        | cli_3
+        | cli_4
+    )
+
+    # Define Environmental Variables
+
+    env_1 = {
+        "Prenatal_Mother_Condition",
+        "Mode_of_delivery_Vaginal",
+        "Analgesics_usage_delivery",
+        "Anesthetic_delivery",
+    }
+
+    environmental = [
+        "2_mother_condition",
+        "4_breastfeeding",
+        "5_home",
+        "8_smoke",
+        "11_antibiotic",
+    ]
+    feature_fourtype_dict["environmental"] = (
+        features_all_types["2_mother_condition"]
+        | features_all_types["4_breastfeeding"]
+        | features_all_types["5_home"]
+        | features_all_types["8_smoke"]
+        | features_all_types["11_antibiotic"]
+        | env_1
+    )
+
+    # Define Other Variables
+    oth_1 = {
+        "Study_Center_Edmonton",
+        "Study_Center_Toronto",
+        "Study_Center_Vancouver",
+        "Study_Center_Winnipeg",
+        "No_of_Pregnancy",
+    }
+
+    feature_fourtype_dict["other"] = features_all_types["6_mental"] | oth_1
+
+    feature_fourtype_dict["all_variables_till3y"] = (
+        feature_fourtype_dict["other"]
+        | feature_fourtype_dict["environmental"]
+        | feature_fourtype_dict["clinic"]
+        | feature_fourtype_dict["genetic"]
+    )
+
+    print(f"The available keys are {feature_fourtype_dict.keys()}")
+
+    return feature_fourtype_dict
+
+
 # Extract index_number from raw dataset for all further modelling, training, evaluation, and holdout testing
 def df_holdout_throughout(
         df_child,
@@ -454,11 +564,48 @@ def ml_tuned_run(df_train_eval,
                  scoring_for_tune="average_precision",
                  ):
     # List of Model to perform Grid Search
-    clf_lr = LogisticRegression(class_weight="balanced")
-    clf_dt = DecisionTreeClassifier(class_weight="balanced", random_state=2021)
-    clf_svc = SVC(class_weight="balanced", probability=True, random_state=2021)
-    clf_rf = RandomForestClassifier(class_weight="balanced", random_state=2021)
-    clf_xgb = XGBClassifier(random_state=2021, verbosity=0)
+    # clf_lr = LogisticRegression(class_weight="balanced")
+    # clf_dt = DecisionTreeClassifier(class_weight="balanced", random_state=2021)
+    # clf_svc = SVC(class_weight="balanced", probability=True, random_state=2021)
+    # clf_rf = RandomForestClassifier(class_weight="balanced", random_state=2021)
+    # clf_xgb = XGBClassifier(random_state=2021, verbosity=False)
+
+    clf_lr = LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")
+
+    # Random Forest
+    clf_rf = RandomForestClassifier(
+        n_estimators=100,
+        class_weight="balanced",
+        max_depth=3,
+        max_features=5,
+        random_state=2021,
+    )
+
+    # XGB
+    clf_xgb = XGBClassifier(
+        max_depth=3,
+        learning_rate=0.01,
+        colsample_bytree=0.8,
+        scale_pos_weight=15,
+        subsample=0.8,
+        random_state=2021,
+#        verbosity=False,
+    )
+    # SVC
+    clf_svc = SVC(
+        C=0.02,
+        kernel="linear",
+        class_weight="balanced",
+        probability=True,
+        random_state=2021,
+    )
+    # Decision Tree
+    clf_dt = DecisionTreeClassifier(
+        criterion="gini",
+        max_depth=6,  # Previous is None
+        class_weight="balanced",
+        random_state=2021,
+    )
 
     # Define param grid for hyperparmeter tuning
     param_grid_lr = {
@@ -714,7 +861,7 @@ def ml_tuned_run(df_train_eval,
         target_name,
         estimator=XGBClassifier(
             random_state=2021,
-            verbosity=0,
+#            verbosity=0,
             **gs_param_dict['xgb']
         ),
         scalar=MinMaxScaler(),
@@ -931,6 +1078,7 @@ def ml_res_visualization(
         scale_pos_weight=15,
         subsample=0.8,
         random_state=2021,
+#        verbosity=False  # This parameter also affects how estimator runs.
     )
     # SVC
     svc = SVC(
@@ -1066,6 +1214,7 @@ def feature_progression_merge(
     permutation_thresh=0.001,
     how="sum",
     normalize=True,
+    merged_thresh=0,
 ):
     """
     params: how, string
@@ -1123,6 +1272,9 @@ def feature_progression_merge(
                 feature_df_merged[col].fillna(0)
             )
 
+    feature_df_merged = feature_df_merged.applymap(lambda x: filter_features(x, threshold=merged_thresh)).dropna(
+            how="all")
+
     # For Visualization Only
     ml_final_features = feature_df_merged.copy()
 
@@ -1154,8 +1306,119 @@ def feature_progression_merge(
 
     return feature_df_merged
 
+
+
+# For dataframe apply lambda usage to change features into categories
+def category_detection(keywords, four_type_dict):
+    for keys in list(four_type_dict.keys())[:4]:
+        if keywords in four_type_dict[keys]:
+            return keys.title()
+    else:
+        return np.nan
+
+
+# Create dataframe for visualize categorized feature importance at multiple timepoints
+def feature_category_dataframe(
+    ml_res_final,
+    df,
+    coef_thresh=0.15,
+    featimp_thresh=0.015,
+    permutation_thresh=0.001,
+    how="sum",
+    normalize=True,
+    merged_thresh=0.0,
+):
+    """
+    :param ml_res_final: see feature_progression_merge() for reference
+    :param df: see "features_four_timepoint()" for reference
+    :param coef_thresh: see feature_progression_merge() for reference
+    :return: a dataframe with feature importance in categories
+    """
+    four_type_dict = features_four_types(df)
+    ml_final_features = feature_progression_merge(
+        ml_res_final,
+        ml_list=["lr", "rf", "xgb", "svc", "dt"],
+        coef_thresh=coef_thresh,
+        featimp_thresh=featimp_thresh,
+        permutation_thresh=permutation_thresh,
+        how=how,
+        normalize=normalize,
+        merged_thresh=merged_thresh,
+    )
+
+    ml_final_features = ml_final_features.reset_index().rename(
+        columns={"index": "Features"}
+    )
+    ml_final_features["Category"] = ml_final_features["Features"].apply(
+        lambda x: category_detection(x, four_type_dict)
+    )
+    ml_final_features["Features"] = ml_final_features["Features"].apply(
+        lambda x: x.replace("_", " ")
+    )
+
+    ml_category_features_1 = (
+        ml_final_features[["Features", "at_birth", "Category"]]
+        .dropna()
+        .rename(columns={"at_birth": "Feature Importance"})
+    )
+
+    ml_category_features_1["Time Point"] = "At Birth"
+    print("Number of at birth features is: ", ml_category_features_1.shape[0])
+
+    ml_category_features_2 = (
+        ml_final_features[["Features", "before_6m", "Category"]]
+        .dropna()
+        .rename(columns={"before_6m": "Feature Importance"})
+    )
+    ml_category_features_2["Time Point"] = "6 Months"
+    print("Number of at 6 months features is: ", ml_category_features_2.shape[0])
+
+    ml_category_features_3 = (
+        ml_final_features[["Features", "before_12m", "Category"]]
+        .dropna()
+        .rename(columns={"before_12m": "Feature Importance"})
+    )
+    ml_category_features_3["Time Point"] = "1 Year"
+    print("Number of at 1 year features is: ", ml_category_features_3.shape[0])
+
+    ml_category_features_4 = (
+        ml_final_features[["Features", "before_36m", "Category"]]
+        .dropna()
+        .rename(columns={"before_36m": "Feature Importance"})
+    )
+    ml_category_features_4["Time Point"] = "3 Years"
+    print("Number of features at 3 years is: ", ml_category_features_4.shape[0])
+
+    ml_category_features_all = pd.concat(
+        [
+            ml_category_features_1,
+            ml_category_features_2,
+            ml_category_features_3,
+            ml_category_features_4,
+        ],
+        ignore_index=True,
+    )
+
+    print(
+        "Feature_Importance_All_Timepoints.xlsx will be created for final visualization"
+    )
+    ml_category_features_all.to_excel("Feature_Importance_All_Timepoints.xlsx")
+
+    return ml_category_features_all
+
+
 # Calculate and visualize the ensemble model performance at different time points with input of merged feature dataframe
-def ml_ensemble_res(df_train_eval, df_holdout, ml_merged_features, scalar=MinMaxScaler(), threshold_for_selection=0.1):
+def ml_ensemble_res(
+    df_train_eval,
+    df_holdout,
+    ml_merged_features,
+    scalar=MinMaxScaler(),
+    threshold_for_selection=0.1,
+    ci_bootstrap=False,
+    bootstrap_replace=False,
+    bootstrap_iterations=30,
+    subset_percentage=0.95,
+):
     """
     Use the selected feature at different time points from merged feature table to create multiple ensemble models.
     :param df_train_eval
@@ -1163,12 +1426,17 @@ def ml_ensemble_res(df_train_eval, df_holdout, ml_merged_features, scalar=MinMax
     :param ml_merged_features: DataFrame, result of the function "feature_progression_merge()"
     :param scalar: to process the train, eval, holdout dataset
     :param threshold_for_selection: float between 0 to 1, used to select features of importance at different time point
+    :param ci_bootstrap: whether to perform bootstrap for current classifier
+    :param bootstrap_replace: if ci_bootstrap = True, whether to make replacement True for resampling of train eval dataset
+    :param bootstrap_iterations: specify how many iteration you want to run for each classifier
     :return: Dataframe to overview the ensemble performance with visualization of ensemble performance
     """
     # Features collection extracted using merged feature table at different time points
     feature_dict = {}
-    for i in ml_merged_features.columns: # Columns are time points
-        feature_dict[i] = list(ml_merged_features[i][ml_merged_features[i] > threshold_for_selection].index)
+    for i in ml_merged_features.columns:  # Columns are time points
+        feature_dict[i] = list(
+            ml_merged_features[i][ml_merged_features[i] > threshold_for_selection].index
+        )
 
     # Set parameters of the individual estimators
     ensemble_collections = [
@@ -1192,6 +1460,7 @@ def ml_ensemble_res(df_train_eval, df_holdout, ml_merged_features, scalar=MinMax
                 scale_pos_weight=15,
                 subsample=0.8,
                 random_state=2021,
+                #                verbosity=False
             ),
         ),
         (
@@ -1225,119 +1494,186 @@ def ml_ensemble_res(df_train_eval, df_holdout, ml_merged_features, scalar=MinMax
         estimators=ensemble_collections, weights=ensemble_weights, voting="soft"
     )
     weighted_hard = VotingClassifier(
-    estimators=ensemble_collections, weights=ensemble_weights, voting="hard")
-
+        estimators=ensemble_collections, weights=ensemble_weights, voting="hard"
+    )
 
     # Stacking LR, RF, XGB, SVC, DT
     stacking_xgb = StackingClassifier(
-    estimators=ensemble_collections, final_estimator=XGBClassifier(random_state=2021)
-)
-    stacking_svc = StackingClassifier(estimators=ensemble_collections, final_estimator=SVC(random_state=2021, probability=True))
+        estimators=ensemble_collections,
+        final_estimator=XGBClassifier(random_state=2021),
+    )
+    stacking_svc = StackingClassifier(
+        estimators=ensemble_collections,
+        final_estimator=SVC(random_state=2021, probability=True),
+    )
     stacking_rf = StackingClassifier(
-    estimators=ensemble_collections, final_estimator=RandomForestClassifier(random_state=2021)
-)
+        estimators=ensemble_collections,
+        final_estimator=RandomForestClassifier(random_state=2021),
+    )
     stacking_lr = StackingClassifier(
-        estimators=ensemble_collections, final_estimator=LogisticRegression(random_state=2021)
+        estimators=ensemble_collections,
+        final_estimator=LogisticRegression(random_state=2021),
     )
     stacking_dt = StackingClassifier(
-        estimators=ensemble_collections, final_estimator=DecisionTreeClassifier(random_state=2021)
+        estimators=ensemble_collections,
+        final_estimator=DecisionTreeClassifier(random_state=2021),
     )
 
-    ensemble_algorithms = { "hard_vote":hard_vote, "soft_vote":soft_vote,
-                            'weighted_hard':weighted_hard, 'weighted_soft':weighted_soft,
-                            'stacking_lr':stacking_lr,'stacking_rf':stacking_rf,
-                            'stacking_xgb':stacking_xgb,'stacking_svc':stacking_svc,
-                            'stacking_dt':stacking_dt}
+    ensemble_algorithms = {
+        "hard_vote": hard_vote,
+        "soft_vote": soft_vote,
+        "weighted_hard": weighted_hard,
+        "weighted_soft": weighted_soft,
+        "stacking_lr": stacking_lr,
+        "stacking_rf": stacking_rf,
+        "stacking_xgb": stacking_xgb,
+        "stacking_svc": stacking_svc,
+        "stacking_dt": stacking_dt,
+    }
     ensemble_res_dict = {}
 
-    for ens_name,ens_clf in ensemble_algorithms.items():
-        ensemble_res = {}
-        if "hard" in ens_name:
-            for timepoint in feature_dict.keys():
-                ensemble_res[timepoint] = model_result_holdout(
-                    df_train_eval,
-                    df_holdout,
-                    feature_columns_selected=feature_dict[timepoint],
-                    target_name="Asthma_Diagnosis_5yCLA",
-                    estimator=ens_clf,
-                    scalar=scalar,
-                    voting="hard",
-                )
-            ensemble_res_dict[ens_name] = ensemble_res
-        else:
-            for timepoint in feature_dict.keys():
-                ensemble_res[timepoint] = model_result_holdout(
-                    df_train_eval,
-                    df_holdout,
-                    feature_columns_selected=feature_dict[timepoint],
-                    target_name="Asthma_Diagnosis_5yCLA",
-                    estimator=ens_clf,
-                    scalar=scalar,
-                    voting=None,
-                )
-            ensemble_res_dict[ens_name] = ensemble_res
-
-    ensemble_res_perf = {}
-    model_multiindex = []
-    model_metrics = [
-        "Precision",
-        "Recall",
-        "F1",
-        "Average_precision",
-        "Roc_auc",
-        "Support",
-    ]
-    for ensemble_name in ensemble_res_dict.keys():
-        for timepoint in ensemble_res_dict[ensemble_name].keys():
-            if "hard" in ensemble_name:
+    if ci_bootstrap:
+        for ens_name, ens_clf in ensemble_algorithms.items():
+            if "hard" not in ens_name:  # filtering out the "hard" ensembles
+                ensemble_res = {}
+                for timepoint in feature_dict.keys():
+                    ensemble_res[timepoint] = model_metrics_bootstrapstats(
+                        df_train_eval,
+                        df_holdout,
+                        feature_columns_selected=feature_dict[timepoint],
+                        target_name="Asthma_Diagnosis_5yCLA",
+                        bootstrap_replace=bootstrap_replace,
+                        bootstrap_iterations=bootstrap_iterations,
+                        subset_percentage=subset_percentage,
+                        confidence_alpha=0.95,
+                        estimator=ens_clf,
+                        scalar=scalar,
+                    )
+                ensemble_res_dict[ens_name] = ensemble_res
+        ensemble_res_perf = {}
+        model_multiindex = []
+        model_metrics = [
+            "Average_Precision",
+            "Average_Precision_CI",
+            "ROC_AUC",
+            "ROC_AUC_CI",
+        ]
+        for ensemble_name in ensemble_res_dict.keys():
+            for timepoint in ensemble_res_dict[ensemble_name].keys():
                 ensemble_res_perf[ensemble_name + "-" + timepoint] = [
-                    ensemble_res_dict[ensemble_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][0],
-                    ensemble_res_dict[ensemble_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][1],
-                    ensemble_res_dict[ensemble_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][2],
-                    np.nan,
-                    np.nan,
-                    ensemble_res_dict[ensemble_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][3],
-                ]
-
-            else:
-                ensemble_res_perf[ensemble_name + "-" + timepoint] = [
-                    ensemble_res_dict[ensemble_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][0],
-                    ensemble_res_dict[ensemble_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][1],
-                    ensemble_res_dict[ensemble_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][2],
                     ensemble_res_dict[ensemble_name][timepoint][0][
                         "average_precision_score"
                     ],
-                    ensemble_res_dict[ensemble_name][timepoint][0]["roc_auc_score"],
                     ensemble_res_dict[ensemble_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][3],
+                        "average_precision_CI"
+                    ],
+                    ensemble_res_dict[ensemble_name][timepoint][0]["roc_auc_score"],
+                    ensemble_res_dict[ensemble_name][timepoint][0]["roc_auc_CI"],
                 ]
 
-            model_multiindex.append(
-                (
-                    ensemble_name.replace("_", " ").capitalize(),
-                    timepoint.replace("_", " ").title(),
+                model_multiindex.append(
+                    (
+                        ensemble_name.replace("_", " ").capitalize(),
+                        timepoint.replace("_", " ").title(),
+                    )
                 )
-            )
+        ensemble_model_performance = pd.DataFrame(
+            ensemble_res_perf, index=model_metrics
+        ).T
+        ensemble_model_performance.index = pd.MultiIndex.from_tuples(
+            model_multiindex, names=["Model", "Time Point"]
+        )
 
-    ensemble_model_performance = pd.DataFrame(ensemble_res_perf, index=model_metrics).T
-    ensemble_model_performance.index = pd.MultiIndex.from_tuples(
-        model_multiindex, names=["Model", "Time Point"]
-    )
+    else:
+        for ens_name, ens_clf in ensemble_algorithms.items():
+            ensemble_res = {}
+            if "hard" in ens_name:
+                for timepoint in feature_dict.keys():
+                    ensemble_res[timepoint] = model_result_holdout(
+                        df_train_eval,
+                        df_holdout,
+                        feature_columns_selected=feature_dict[timepoint],
+                        target_name="Asthma_Diagnosis_5yCLA",
+                        estimator=ens_clf,
+                        scalar=scalar,
+                        voting="hard",
+                    )
+                ensemble_res_dict[ens_name] = ensemble_res
+            else:
+                for timepoint in feature_dict.keys():
+                    ensemble_res[timepoint] = model_result_holdout(
+                        df_train_eval,
+                        df_holdout,
+                        feature_columns_selected=feature_dict[timepoint],
+                        target_name="Asthma_Diagnosis_5yCLA",
+                        estimator=ens_clf,
+                        scalar=scalar,
+                        voting=None,
+                    )
+                ensemble_res_dict[ens_name] = ensemble_res
+        ensemble_res_perf = {}
+        model_multiindex = []
+        model_metrics = [
+            "Precision",
+            "Recall",
+            "F1",
+            "Average_precision",
+            "Roc_auc",
+            "Support",
+        ]
+        for ensemble_name in ensemble_res_dict.keys():
+            for timepoint in ensemble_res_dict[ensemble_name].keys():
+                if "hard" in ensemble_name:
+                    ensemble_res_perf[ensemble_name + "-" + timepoint] = [
+                        ensemble_res_dict[ensemble_name][timepoint][0][
+                            "precision_recall_f1_support"
+                        ][:, 1][0],
+                        ensemble_res_dict[ensemble_name][timepoint][0][
+                            "precision_recall_f1_support"
+                        ][:, 1][1],
+                        ensemble_res_dict[ensemble_name][timepoint][0][
+                            "precision_recall_f1_support"
+                        ][:, 1][2],
+                        np.nan,
+                        np.nan,
+                        ensemble_res_dict[ensemble_name][timepoint][0][
+                            "precision_recall_f1_support"
+                        ][:, 1][3],
+                    ]
+
+                else:
+                    ensemble_res_perf[ensemble_name + "-" + timepoint] = [
+                        ensemble_res_dict[ensemble_name][timepoint][0][
+                            "precision_recall_f1_support"
+                        ][:, 1][0],
+                        ensemble_res_dict[ensemble_name][timepoint][0][
+                            "precision_recall_f1_support"
+                        ][:, 1][1],
+                        ensemble_res_dict[ensemble_name][timepoint][0][
+                            "precision_recall_f1_support"
+                        ][:, 1][2],
+                        ensemble_res_dict[ensemble_name][timepoint][0][
+                            "average_precision_score"
+                        ],
+                        ensemble_res_dict[ensemble_name][timepoint][0]["roc_auc_score"],
+                        ensemble_res_dict[ensemble_name][timepoint][0][
+                            "precision_recall_f1_support"
+                        ][:, 1][3],
+                    ]
+
+                model_multiindex.append(
+                    (
+                        ensemble_name.replace("_", " ").capitalize(),
+                        timepoint.replace("_", " ").title(),
+                    )
+                )
+
+        ensemble_model_performance = pd.DataFrame(
+            ensemble_res_perf, index=model_metrics
+        ).T
+        ensemble_model_performance.index = pd.MultiIndex.from_tuples(
+            model_multiindex, names=["Model", "Time Point"]
+        )
 
     return ensemble_model_performance
 
@@ -1413,13 +1749,50 @@ def ml_feature_selection(
     """
 
     # Untuned Estimator to obtain features with maximal performance
-    svc = SVC(class_weight="balanced")
+    # svc = SVC(class_weight="balanced")
     knn = KNeighborsClassifier(n_neighbors=5)
-    lr = LogisticRegression(class_weight="balanced")
-    rf = RandomForestClassifier(class_weight="balanced", random_state=2021)
-    xgb = XGBClassifier(class_weight="balanced")
+    # lr = LogisticRegression(class_weight="balanced")
+    # rf = RandomForestClassifier(class_weight="balanced", random_state=2021)
+    # xgb = XGBClassifier(class_weight="balanced")
+    # dt = DecisionTreeClassifier(
+    #     criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
+    # )
+
+    lr = LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")
+
+    # Random Forest
+    rf = RandomForestClassifier(
+        n_estimators=100,
+        class_weight="balanced",
+        max_depth=3,
+        max_features=5,
+        random_state=2021,
+    )
+
+    # XGB
+    xgb = XGBClassifier(
+        max_depth=3,
+        learning_rate=0.01,
+        colsample_bytree=0.8,
+        scale_pos_weight=15,
+        subsample=0.8,
+        random_state=2021,
+#        verbosity=False,
+    )
+    # SVC
+    svc = SVC(
+        C=0.02,
+        kernel="linear",
+        class_weight="balanced",
+        probability=True,
+        random_state=2021,
+    )
+    # Decision Tree
     dt = DecisionTreeClassifier(
-        criterion="entropy", random_state=0, max_depth=6, class_weight="balanced"
+        criterion="gini",
+        max_depth=6,  # Previous is None
+        class_weight="balanced",
+        random_state=2021,
     )
 
     # Scale of X
@@ -1429,7 +1802,7 @@ def ml_feature_selection(
     res_dict = {}
     if test_model_number == 0:
         print(
-            "The specific classifier where feature is being automatically selected is:", clf[1]
+            "The specific classifier where feature is being automatically selected is:", clf[0]
         )
         sfs = SFS(
             clf[0],
@@ -1549,6 +1922,7 @@ def ml_feature_selection(
 
 
 # Final Model Performance - Holdout Result View
+# Final Model Performance - Holdout Result View
 def model_result_holdout(
     df_train_eval,
     df_holdout,
@@ -1561,6 +1935,7 @@ def model_result_holdout(
     estimator=LogisticRegression(class_weight="balanced"),
     scalar=MinMaxScaler(),
     voting=None,
+    display=False,
 ):
     """
     Perform model performance test on holdout dataset with trained model with given feature columns. Dataframe
@@ -1663,26 +2038,99 @@ def model_result_holdout(
         )
 
         # Plotting
-        display = PrecisionRecallDisplay.from_predictions(
-            y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-        )
-        _ = display.ax_.set_title(f"{estimator}")
+        if display:
+            display = PrecisionRecallDisplay.from_predictions(
+                y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+            )
+            _ = display.ax_.set_title(f"{estimator}")
 
-        display = RocCurveDisplay.from_predictions(
-            y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
-        )
-        _ = display.ax_.set_title(f"{estimator}")
-        plt.plot([0, 1], [0, 1], color="red", lw=2, linestyle="--")
+            display = RocCurveDisplay.from_predictions(
+                y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+            )
+            _ = display.ax_.set_title(f"{estimator}")
+            plt.plot([0, 1], [0, 1], color="red", lw=2, linestyle="--")
 
     # Print out result
-    print(classification_report(y_holdout, holdout_result["y_predicted_holdout"]))
+    if display:
+        print(classification_report(y_holdout, holdout_result["y_predicted_holdout"]))
 
-    display = ConfusionMatrixDisplay.from_predictions(
-        y_holdout, holdout_result["y_predicted_holdout"]
-    )
-    _ = display.ax_.set_title(f"{estimator}")
+        display = ConfusionMatrixDisplay.from_predictions(
+            y_holdout, holdout_result["y_predicted_holdout"]
+        )
+        _ = display.ax_.set_title(f"{estimator}")
 
     return holdout_result, estimator
+
+# Final Model Performance with bootstrapping - Confidence Interval calculations
+def model_metrics_bootstrapstats(
+    df_train_eval,
+    df_holdout,
+    feature_columns_selected,
+    target_name="Asthma_Diagnosis_5yCLA",
+    bootstrap_replace=False,
+    bootstrap_iterations=80,
+    subset_percentage=0.95,
+    confidence_alpha=0.95,
+    estimator=LogisticRegression(class_weight="balanced"),
+    scalar=MinMaxScaler(),
+):
+    # For stratification X,y will be created for df_train_eval
+    X = df_train_eval.drop(columns=target_name)
+    y = df_train_eval[target_name]
+
+    roc_list = []
+    average_precision_list = []
+    for i in tqdm(range(bootstrap_iterations)):
+        X_resampled, y_resampled = resample(
+            X,
+            y,
+            replace=bootstrap_replace,
+            n_samples=int(subset_percentage * (len(y))),
+            stratify=y,
+            random_state=None,
+        )
+        df_train_eval_bts = pd.concat([X_resampled, y_resampled], axis=1)
+        res_holdout = model_result_holdout(
+            df_train_eval_bts,
+            df_holdout,
+            feature_columns_selected,
+            target_name,
+            random_state_for_eval_split=123,
+            eval_positive_number=30,
+            eval_negative_number=150,
+            train_eval_separation_to_fit=False,
+            estimator=estimator,
+            scalar=scalar,
+            voting=None,
+            display=False,
+        )
+        roc_list.append(res_holdout[0]["roc_auc_score"])
+        average_precision_list(res_holdout[0]["average_precision_score"])
+
+    res_metrics = {}
+
+    # confidence intervals
+    p_roc = ((1.0 - confidence_alpha) / 2.0) * 100
+    lower_roc = max(0.0, np.percentile(roc_list, p_roc))
+    p_roc = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
+    upper_roc = min(1.0, np.percentile(roc_list, p_roc))
+
+    print(
+        "%.1f confidence interval %.1f%% and %.1f%%"
+        % (confidence_alpha * 100, lower_roc * 100, upper_roc * 100)
+    )
+
+    p_ap = ((1.0 - confidence_alpha) / 2.0) * 100
+    lower_ap = max(0.0, np.percentile(average_precision_list, p_ap))
+    p_ap = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
+    upper_ap = min(1.0, np.percentile(average_precision_list, p_ap))
+
+    res_metrics["roc_auc_score"] = np.percentile(roc_list, 50)
+    res_metrics["roc_auc_CI"] = (lower_roc, upper_roc)
+    res_metrics["average_precision_score"] = np.percentile(average_precision_list, 50)
+    res_metrics["average_precision_CI"] = (lower_ap, upper_ap)
+
+    return res_metrics, res_holdout
 
 
 # An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
@@ -1779,6 +2227,7 @@ def df_ml_run(
         scale_pos_weight=15,
         subsample=0.8,
         random_state=2021,
+#        verbosity=False
     )
     # SVC
     svc = SVC(
@@ -2075,6 +2524,7 @@ def df_ml_run(
     model_cm_df.index = index_name
 
     return score_df, score_dict_highest, feature_res_returned, model_cm_df, dt
+
 
 
 # Identify the minimal features that generate highest performance using self-defined strategies.
