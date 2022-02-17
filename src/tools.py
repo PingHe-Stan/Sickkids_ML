@@ -2,7 +2,8 @@ __author__ = 'Stan He@Sickkids.ca'
 __contact__ = 'stan.he@sickkids.ca'
 __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
-            '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11']
+            '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11',
+            "2022-02-17"]
 
 """Gadgets for various tasks 
 """
@@ -68,12 +69,6 @@ from sklearn.inspection import permutation_importance
 from sklearn.model_selection import PredefinedSplit, StratifiedKFold, LeaveOneOut
 from mlxtend.evaluate import PredefinedHoldoutSplit
 from mlxtend.feature_selection import SequentialFeatureSelector as SFS
-
-#TODO: (1) Strategy 1: Manually Selected Feature Set Result with GridSearchCV paramters for each time points - Multiple Model Predictivity + Weighted Feature Importance with the same set of features
-#TODO: (2) Strategy 2: Automated Feature Selection for each Specific Estimator throughout - Singular Model Predictivity + Feature Importance
-#TODO: (3) 3.9 Visualization of Model Predictivity at multiple time points for f1 variation (Recall & Precision of Asthmatic) for each ML types - based on (2)
-#TODO: (4) 3.10 Visualization of a combined heatmap for feature importance at multiple time points table for each model or using a selection of valid models - good performing models
-#TODO: -----Ensembling for better model----
 
 
 # Load more variables to existing xlsx
@@ -1597,6 +1592,7 @@ def ml_ensemble_res(
                         estimator=ens_clf,
                         scalar=scalar,
                         voting="hard",
+                        display=True,
                     )
                 ensemble_res_dict[ens_name] = ensemble_res
             else:
@@ -1609,6 +1605,7 @@ def ml_ensemble_res(
                         estimator=ens_clf,
                         scalar=scalar,
                         voting=None,
+                        display=True
                     )
                 ensemble_res_dict[ens_name] = ensemble_res
         ensemble_res_perf = {}
@@ -2131,6 +2128,187 @@ def model_metrics_bootstrapstats(
     res_metrics["average_precision_CI"] = (lower_ap, upper_ap)
 
     return res_metrics, res_holdout
+
+
+# Calculate and visualize the ensemble model performance at different time points with input of ml_res_final
+def ml_individual_res(
+    df_train_eval,
+    df_holdout,
+    ml_res_final,  # Contains the auto-selected features for different models at different timepoints
+    scalar=MinMaxScaler(),
+    ci_bootstrap=True,
+    bootstrap_replace=True,
+    bootstrap_iterations=30,
+    subset_percentage=1,
+):
+    """
+    Use the selected feature at different time points from merged feature table to create multiple ensemble models.
+    :param df_train_eval
+    :param df_holdout
+    :param ml_res_final: complicated tuple, result of the function "ml_res_visualization()"
+    :param scalar: to process the train, eval, holdout dataset
+    :param ci_bootstrap: whether to perform bootstrap for current classifier
+    :param bootstrap_replace: if ci_bootstrap = True, whether to make replacement True for resampling of train eval dataset
+    :param bootstrap_iterations: specify how many iteration you want to run for each classifier
+    :return: Dataframe to overview the individual model performance at different timepoints
+    """
+    # Timepoints extracted using previously calculated ml_res_final
+    timepoints_list = ["at_birth", "before_6m", "before_12m", "before_36m"]
+
+    # Define Parameters of the individual estimators
+    lr = LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")
+
+    # Random Forest
+    rf = RandomForestClassifier(
+        n_estimators=100,
+        class_weight="balanced",
+        max_depth=3,
+        max_features=5,
+        random_state=2021,
+    )
+
+    # XGB
+    xgb = XGBClassifier(
+        max_depth=3,
+        learning_rate=0.01,
+        colsample_bytree=0.8,
+        scale_pos_weight=15,
+        subsample=0.8,
+        random_state=2021,
+        #    verbosity=False,
+    )
+    # SVC
+    svc = SVC(
+        C=0.02,
+        kernel="linear",
+        class_weight="balanced",
+        probability=True,
+        random_state=2021,
+    )
+    # Decision Tree
+    dt = DecisionTreeClassifier(
+        criterion="gini",
+        max_depth=6,  # Previous is None
+        class_weight="balanced",
+        random_state=2021,
+    )
+
+    individual_algorithms = {
+        "lr": [lr, "Logistic Regression"],
+        "rf": [rf, "Random Forest"],
+        "xgb": [xgb, "eXtreme Gradient Boost"],
+        "svc": [svc, "Support Vector Machine"],
+        "dt": [dt, "Decision Tree"],
+    }
+
+    individual_res_dict = {}
+
+    if ci_bootstrap:
+        for ind_name, ind_clf in individual_algorithms.items():
+            individual_res = {}
+            for timepoint in timepoints_list:
+                individual_res[timepoint] = model_metrics_bootstrapstats(
+                    df_train_eval,
+                    df_holdout,
+                    feature_columns_selected=list(
+                        ml_res_final[0][ind_name][0]["feature_names"][timepoint]
+                    ),
+                    target_name="Asthma_Diagnosis_5yCLA",
+                    bootstrap_replace=bootstrap_replace,
+                    bootstrap_iterations=bootstrap_iterations,
+                    subset_percentage=subset_percentage,
+                    confidence_alpha=0.95,
+                    estimator=ind_clf[0],
+                    scalar=scalar,
+                )
+            individual_res_dict[ind_name] = individual_res
+        individual_res_perf = {}
+        model_multiindex = []
+        model_metrics = [
+            "Average_Precision",
+            "Average_Precision_CI",
+            "ROC_AUC",
+            "ROC_AUC_CI",
+        ]
+        for individual_name, individual_model in individual_algorithms.items():
+            for timepoint in individual_res_dict[individual_name].keys():
+                individual_res_perf[individual_name + "-" + timepoint] = [
+                    individual_res_dict[individual_name][timepoint][0][
+                        "average_precision_score"
+                    ],
+                    individual_res_dict[individual_name][timepoint][0][
+                        "average_precision_CI"
+                    ],
+                    individual_res_dict[individual_name][timepoint][0]["roc_auc_score"],
+                    individual_res_dict[individual_name][timepoint][0]["roc_auc_CI"],
+                ]
+
+                model_multiindex.append(
+                    (individual_model[1], timepoint.replace("_", " ").title(),)
+                )
+        individual_model_performance = pd.DataFrame(
+            individual_res_perf, index=model_metrics
+        ).T
+        individual_model_performance.index = pd.MultiIndex.from_tuples(
+            model_multiindex, names=["Model", "Time Point"]
+        )
+
+    else:
+        for ind_name, ind_clf in individual_algorithms.items():
+            individual_res = {}
+            for timepoint in timepoints_list:
+                individual_res[timepoint] = model_result_holdout(
+                    df_train_eval,
+                    df_holdout,
+                    feature_columns_selected=list(
+                        ml_res_final[0][ind_name][0]["feature_names"][timepoint]
+                    ),
+                    target_name="Asthma_Diagnosis_5yCLA",
+                    estimator=ind_clf[0],
+                    scalar=scalar,
+                    voting="hard",
+                    display=True,
+                )
+            individual_res_dict[ind_name] = individual_res
+        individual_res_perf = {}
+        model_multiindex = []
+        model_metrics = [
+            "Precision",
+            "Recall",
+            "F1",
+            "Average_precision",
+            "Roc_auc",
+        ]
+        for individual_name, individual_model in individual_algorithms.items():
+            for timepoint in individual_res_dict[individual_name].keys():
+                individual_res_perf[individual_name + "-" + timepoint] = [
+                    individual_res_dict[individual_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][0],
+                    individual_res_dict[individual_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][1],
+                    individual_res_dict[individual_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][2],
+                    individual_res_dict[individual_name][timepoint][0][
+                        "average_precision_score"
+                    ],
+                    individual_res_dict[individual_name][timepoint][0]["roc_auc_score"],
+                ]
+
+                model_multiindex.append(
+                    (individual_model[1], timepoint.replace("_", " ").title(),)
+                )
+
+        individual_model_performance = pd.DataFrame(
+            individual_res_perf, index=model_metrics
+        ).T
+        individual_model_performance.index = pd.MultiIndex.from_tuples(
+            model_multiindex, names=["Model", "Time Point"]
+        )
+
+    return individual_model_performance
 
 
 # An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
