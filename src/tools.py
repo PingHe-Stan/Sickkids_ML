@@ -146,267 +146,6 @@ def load_child_with_more(
     return df_child
 
 
-def grouped_feature_generator(df):
-    """
-    Automaticly generate subset of variables to facilitate the feature selection, feature imputation, as well as time-point longitudinal ML analysis process.
-    :param df Dataframe to be operated on
-    :return: two dictionaries containing groupped features, and features at different time points
-
-    Example:
-    feature_dict, timepoint_dict, feature_grouped_overview, time_grouped_overview = grouped_feature_generator(df)
-    """
-
-    # To facilitate the selections of features as well as the multivariate imputation for grouped features to build models
-    feature_grouped_dict = {}
-
-    feature_grouped_mapping = {
-        "1_weight": "^Weight_",
-        "2_mother_condition": "^Prenatal_",
-        "3_first10min": "10min_",
-        "4_breastfeeding": "^BF_",
-        "5_home": "^Home",
-        "6_mental": "^PSS_|^CSED_",
-        "7_parental": "Mother|Father|Dad|Mom|Parental",
-        "8_smoke": "Smoke",
-        "9_wheeze": "Wheeze",
-        "10_resp": "Respiratory|RI",
-        "11_antibiotic": "Antibiotic",
-    }
-
-    for k, v in feature_grouped_mapping.items():
-        feature_grouped_dict[k] = set(df.columns[df.columns.str.contains(v)])
-
-    feature_grouped_dict["1_11"] = set()
-    for i in feature_grouped_dict.values():
-        feature_grouped_dict["1_11"].update(i)
-
-    feature_grouped_dict["12_misc"] = (
-            set(df.columns)
-            - feature_grouped_dict["1_11"]
-            - set(df.columns[df.columns.str.contains("yCLA")])
-            - {"y"}
-    )
-
-    temp_current = set()
-    for i in feature_grouped_dict.values():
-        temp_current.update(i)
-
-    feature_grouped_dict["13_remainder"] = set(df.columns) - temp_current
-
-    # To facilitate the incorporation of features at different time points to build models
-    feature_timepoint_dict = {}
-
-    feature_timepoint_mapping = {
-        "3m": "3m",
-        "6m": "_6m",
-        "12m": "_12m|_1y",
-        "18m": "18m|BF_implied",
-        "24m": "24m|2y",
-        "36m": "36m|3y",
-        "48m": "48m|4y",
-        "60m": "60m|5y|Traj_Type",
-        "1_9m_2hy": "_1m$|9m|_2hy|_30m"
-    }
-
-    for k, v in feature_timepoint_mapping.items():
-        feature_timepoint_dict[k] = set(df.columns[df.columns.str.contains(v)])
-
-    feature_timepoint_dict["after_birth"] = set()
-
-    for i in feature_timepoint_dict.values():
-        feature_timepoint_dict["after_birth"].update(i)
-
-    feature_timepoint_dict["at_birth"] = (
-            set(df.columns) - feature_timepoint_dict["after_birth"] - {"y"}
-    )
-
-    target_repo = {
-        "Asthma_Diagnosis_3yCLA",
-        "Asthma_Diagnosis_5yCLA",
-        "Recurrent_Wheeze_1y",  # Self-report Wheeze at earliest time point
-        "Recurrent_Wheeze_3y",
-        "Recurrent_Wheeze_5y",
-        "Wheeze_Traj_Type",  # Derived by Vera Dai, Less NaN Value, 2+4 could be useful
-        "Medicine_for_Wheeze_5yCLA",  # More objective
-        "Viral_Asthma_3yCLA",  # No need to decide "possible" category
-        "Triggered_Asthma_3yCLA",
-        "Viral_Asthma_5yCLA",  # No need to decide "possible" category
-        "Triggered_Asthma_5yCLA",
-    }
-
-    print("------------------------------------------------------")
-    print(
-        "The available grouped feature can be one of: \n", feature_grouped_dict.keys()
-    )
-    print("------------------------------------------------------")
-    print(
-        "The available time-points for features can be one of: \n",
-        feature_timepoint_dict.keys(),
-    )
-    print("------------------------------------------------------")
-    print("Note: Target variable can be one of: \n", target_repo)
-    print("------------------------------------------------------")
-
-    feature_grouped_overview = pd.DataFrame(
-        [feature_grouped_dict.keys(), feature_grouped_dict.values()], index=["Type", "Features"]
-    ).T.set_index("Type").drop(index=["1_11"])
-
-    feature_grouped_overview.loc[-1] = str(target_repo)
-
-    feature_grouped_overview.rename(index={-1: "14_target"}, inplace=True)
-
-    time_variable_overview = (
-        pd.DataFrame(
-            [feature_timepoint_dict.keys(), feature_timepoint_dict.values()], index=["Time_Points", "Features"]
-        )
-            .T.set_index("Time_Points")
-            .drop(index=["1_9m_2hy"])
-    )
-
-    return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
-
-
-# grouped_feature_generator will be applied
-def features_four_timepoint(df):
-    _, features_all_timepoint, _, _ = grouped_feature_generator(df)
-    feature_fourtime_dict = {}
-    feature_fourtime_dict['at_birth_feature'] = features_all_timepoint["at_birth"]
-    feature_fourtime_dict['with_6m'] = features_all_timepoint["3m"] | features_all_timepoint["6m"] | {i for i in
-                                                                                                      features_all_timepoint[
-                                                                                                          "1_9m_2hy"] if
-                                                                                                      "_1m" in i}
-    feature_fourtime_dict['with_12m'] = features_all_timepoint["12m"] | {i for i in features_all_timepoint["1_9m_2hy"]
-                                                                         if "_9m" in i}
-    feature_fourtime_dict['with_36m_all'] = (
-            features_all_timepoint["18m"]
-            | features_all_timepoint["24m"]
-            | features_all_timepoint["36m"]
-            | {i for i in features_all_timepoint["1_9m_2hy"] if ("_2hy" in i) | ("_30m" in i)}
-    )
-
-    feature_fourtime_dict['with_36m_exclude_diagnosis'] = feature_fourtime_dict['with_36m_all'] - {
-        "Asthma_Diagnosis_3yCLA", "Triggered_Asthma_3yCLA", "Viral_Asthma_3yCLA"}
-
-    feature_fourtime_dict['all_four_exclude_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
-                                                            feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
-                                                                'with_12m'] | feature_fourtime_dict[
-                                                                'with_36m_exclude_diagnosis']
-    feature_fourtime_dict['all_four_include_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
-                                                            feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
-                                                                'with_12m'] | feature_fourtime_dict['with_36m_all']
-
-    print(f"The available keys are {feature_fourtime_dict.keys()}")
-
-    return feature_fourtime_dict
-
-
-# Create four types for clinical applications. grouped_feature_generator will be applied, Based on Theo Moraes medical viewwpoint
-def features_four_types(df):
-    features_all_types, _, _, _ = grouped_feature_generator(df)
-    feature_fourtype_dict = {}
-
-    # Define Genetic Variables
-    gen_1 = features_all_types["7_parental"] - {"Prenatal_Mother_Condition"}
-    gen_2 = {
-        "Child_Ethinicity_Caucasian",
-        "Child_Ethinicity_HalfCaucas",
-        "Child_Ethinicity_NonCaucas",
-    }
-    feature_fourtype_dict["genetic"] = gen_1 | gen_2
-
-    # Define Clinic Variables
-    cli_1 = features_all_types["9_wheeze"] - {"Wheeze_Father", "Wheeze_Mother"}
-    cli_1 = {
-        i
-        for i in cli_1
-        if (
-            ("_4y" not in i)
-            & ("_5y" not in i)
-            & ("5yCLA" not in i)
-            & ("Traj_Type" not in i)
-        )
-    }
-
-    cli_2 = {i for i in features_all_types["13_remainder"] if "5yCLA" not in i} - {
-        "Asthma_Diagnosis_3yCLA",
-        "Triggered_Asthma_3yCLA",
-        "Viral_Asthma_3yCLA",
-    }
-    cli_3 = {
-        "Apgar_Score_1min",
-        "Apgar_Score_5min",
-        "Child_Atopy_1y",
-        "Child_Atopy_3y",
-        "Child_Food_1y",
-        "Child_Food_3y",
-        "Child_Inhalant_1y",
-        "Child_Inhalant_3y",
-        "Complications_Birth",
-        "Gender_M",
-        "Gest_Days",
-        "Jaundice_Birth",
-        "Stay_Duration_Hospital",
-    }
-
-    cli_4 = features_all_types["1_weight"] - {"Weight_60m"}
-
-    feature_fourtype_dict["clinic"] = (
-        features_all_types["3_first10min"]
-        | features_all_types["10_resp"]
-        | cli_1
-        | cli_2
-        | cli_3
-        | cli_4
-    )
-
-    # Define Environmental Variables
-
-    env_1 = {
-        "Prenatal_Mother_Condition",
-        "Mode_of_delivery_Vaginal",
-        "Analgesics_usage_delivery",
-        "Anesthetic_delivery",
-    }
-
-    environmental = [
-        "2_mother_condition",
-        "4_breastfeeding",
-        "5_home",
-        "8_smoke",
-        "11_antibiotic",
-    ]
-    feature_fourtype_dict["environmental"] = (
-        features_all_types["2_mother_condition"]
-        | features_all_types["4_breastfeeding"]
-        | features_all_types["5_home"]
-        | features_all_types["8_smoke"]
-        | features_all_types["11_antibiotic"]
-        | env_1
-    )
-
-    # Define Other Variables
-    oth_1 = {
-        "Study_Center_Edmonton",
-        "Study_Center_Toronto",
-        "Study_Center_Vancouver",
-        "Study_Center_Winnipeg",
-        "No_of_Pregnancy",
-    }
-
-    feature_fourtype_dict["other"] = features_all_types["6_mental"] | oth_1
-
-    feature_fourtype_dict["all_variables_till3y"] = (
-        feature_fourtype_dict["other"]
-        | feature_fourtype_dict["environmental"]
-        | feature_fourtype_dict["clinic"]
-        | feature_fourtype_dict["genetic"]
-    )
-
-    print(f"The available keys are {feature_fourtype_dict.keys()}")
-
-    return feature_fourtype_dict
-
-
 # Extract index_number from raw dataset for all further modelling, training, evaluation, and holdout testing
 def df_holdout_throughout(
         df_child,
@@ -548,496 +287,145 @@ def df_holdout_throughout(
     )
 
     return df_child_ml, rest_index, holdout_index
-
-# Auto-tuning for multiple models with manually selected features, print out best params and display confusion matrix results
-def ml_tuned_run(df_train_eval,
-                 df_holdout,
-                 feature_columns_selected,
-                 target_name,
-                 scalar=MinMaxScaler(),
-                 cv_for_tune=StratifiedKFold(n_splits=3, random_state=4, shuffle=True),
-                 scoring_for_tune="average_precision",
-                 ):
-    # List of Model to perform Grid Search
-    # clf_lr = LogisticRegression(class_weight="balanced")
-    # clf_dt = DecisionTreeClassifier(class_weight="balanced", random_state=2021)
-    # clf_svc = SVC(class_weight="balanced", probability=True, random_state=2021)
-    # clf_rf = RandomForestClassifier(class_weight="balanced", random_state=2021)
-    # clf_xgb = XGBClassifier(random_state=2021, verbosity=False)
-
-    clf_lr = LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")
-
-    # Random Forest
-    clf_rf = RandomForestClassifier(
-        n_estimators=100,
-        class_weight="balanced",
-        max_depth=3,
-        max_features=5,
-        random_state=2021,
+# grouped_feature_generator will be applied
+# BF_Implied_Duration feature will be moved to with 36m
+def features_four_timepoint(df):
+    _, features_all_timepoint, _, _ = grouped_feature_generator(df)
+    feature_fourtime_dict = {}
+    feature_fourtime_dict['at_birth_feature'] = features_all_timepoint["at_birth"] - {"BF_Implied_Duration"}
+    feature_fourtime_dict['with_6m'] = features_all_timepoint["3m"] | features_all_timepoint["6m"] | {i for i in
+                                                                                                      features_all_timepoint[
+                                                                                                          "1_9m_2hy"] if
+                                                                                                      "_1m" in i}
+    feature_fourtime_dict['with_12m'] = features_all_timepoint["12m"] | {i for i in features_all_timepoint["1_9m_2hy"]
+                                                                         if "_9m" in i}
+    feature_fourtime_dict['with_36m_all'] = (
+            features_all_timepoint["18m"]
+            | features_all_timepoint["24m"]
+            | features_all_timepoint["36m"]
+            | {i for i in features_all_timepoint["1_9m_2hy"] if ("_2hy" in i) | ("_30m" in i)} | {"BF_Implied_Duration"}
     )
 
-    # XGB
-    clf_xgb = XGBClassifier(
-        max_depth=3,
-        learning_rate=0.01,
-        colsample_bytree=0.8,
-        scale_pos_weight=15,
-        subsample=0.8,
-        random_state=2021,
-#        verbosity=False,
-    )
-    # SVC
-    clf_svc = SVC(
-        C=0.02,
-        kernel="linear",
-        class_weight="balanced",
-        probability=True,
-        random_state=2021,
-    )
-    # Decision Tree
-    clf_dt = DecisionTreeClassifier(
-        criterion="gini",
-        max_depth=6,  # Previous is None
-        class_weight="balanced",
-        random_state=2021,
-    )
+    feature_fourtime_dict['with_36m_exclude_diagnosis'] = feature_fourtime_dict['with_36m_all'] - {
+        "Asthma_Diagnosis_3yCLA", "Triggered_Asthma_3yCLA", "Viral_Asthma_3yCLA"}
 
-    # Define param grid for hyperparmeter tuning
-    param_grid_lr = {
-        "solver": ["lbfgs", "liblinear", "saga"], #default=’lbfgs’
-        "C": [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1], #  default: 1
+    feature_fourtime_dict['all_four_exclude_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
+                                                            feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
+                                                                'with_12m'] | feature_fourtime_dict[
+                                                                'with_36m_exclude_diagnosis']
+    feature_fourtime_dict['all_four_include_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
+                                                            feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
+                                                                'with_12m'] | feature_fourtime_dict['with_36m_all']
+
+    print(f"The available keys are {feature_fourtime_dict.keys()}")
+
+    return feature_fourtime_dict
+
+# Create four types for clinical applications. grouped_feature_generator will be applied, Based on Theo Moraes medical viewwpoint
+def features_four_types(df):
+    features_all_types, _, _, _ = grouped_feature_generator(df)
+    feature_fourtype_dict = {}
+
+    # Define Genetic Variables
+    gen_1 = features_all_types["7_parental"] - {"Prenatal_Mother_Condition"}
+    gen_2 = {
+        "Child_Ethinicity_Caucasian",
+        "Child_Ethinicity_HalfCaucas",
+        "Child_Ethinicity_NonCaucas",
+    }
+    feature_fourtype_dict["genetic"] = gen_1 | gen_2
+
+    # Define Clinic Variables
+    cli_1 = features_all_types["9_wheeze"] - {"Wheeze_Father", "Wheeze_Mother"}
+    cli_1 = {
+        i
+        for i in cli_1
+        if (
+            ("_4y" not in i)
+            & ("_5y" not in i)
+            & ("5yCLA" not in i)
+            & ("Traj_Type" not in i)
+        )
     }
 
-    param_grid_dt = {
-        "criterion": ["gini", "entropy"], #default=”gini”
-        "max_depth": [3, 4, 5, 6, 7, None], #default=None
-        "min_samples_split": [2, 4],#default=2
-        "max_features": ["sqrt", 0.8, None], #default=None
+    cli_2 = {i for i in features_all_types["13_remainder"] if "5yCLA" not in i} - {
+        "Asthma_Diagnosis_3yCLA",
+        "Triggered_Asthma_3yCLA",
+        "Viral_Asthma_3yCLA",
+    }
+    cli_3 = {
+        "Apgar_Score_1min",
+        "Apgar_Score_5min",
+        "Child_Atopy_1y",
+        "Child_Atopy_3y",
+        "Child_Food_1y",
+        "Child_Food_3y",
+        "Child_Inhalant_1y",
+        "Child_Inhalant_3y",
+        "Complications_Birth",
+        "Gender_M",
+        "Gest_Days",
+        "Jaundice_Birth",
+        "Stay_Duration_Hospital",
     }
 
-    param_grid_svc = {
-        "kernel": ["linear", "poly", "rbf", "sigmoid"], #default=’rbf’
-        "C": [0.02, 0.05, 0.1, 0.2, 0.5, 1], #default=1
+    cli_4 = features_all_types["1_weight"] - {"Weight_60m"}
+
+    feature_fourtype_dict["clinic"] = (
+        features_all_types["3_first10min"]
+        | features_all_types["10_resp"]
+        | cli_1
+        | cli_2
+        | cli_3
+        | cli_4
+    )
+
+    # Define Environmental Variables
+
+    env_1 = {
+        "Prenatal_Mother_Condition",
+        "Mode_of_delivery_Vaginal",
+        "Analgesics_usage_delivery",
+        "Anesthetic_delivery",
     }
 
-    param_grid_rf = {
-        "max_depth": [3, 4, 5, 6], #default=None
-        "max_features": [4, 5, 6, 7, 8], #default=None
+    environmental = [
+        "2_mother_condition",
+        "4_breastfeeding",
+        "5_home",
+        "8_smoke",
+        "11_antibiotic",
+    ]
+    feature_fourtype_dict["environmental"] = (
+        features_all_types["2_mother_condition"]
+        | features_all_types["4_breastfeeding"]
+        | features_all_types["5_home"]
+        | features_all_types["8_smoke"]
+        | features_all_types["11_antibiotic"]
+        | env_1
+    )
+
+    # Define Other Variables
+    oth_1 = {
+        "Study_Center_Edmonton",
+        "Study_Center_Toronto",
+        "Study_Center_Vancouver",
+        "Study_Center_Winnipeg",
+        "No_of_Pregnancy",
     }
 
-    param_grid_xgb = {
-        "learning_rate": [1e-2, 5e-2, 1e-1, 3e-1], #default=0.3
-        "max_depth": [3, 4, 5, 6], #default=6
-        "colsample_bytree": [0.5, 0.75, 1],#default=1
-        "scale_pos_weight": [7, 10, 15], # equivalent to class_weight, default = 1
-    }
+    feature_fourtype_dict["other"] = features_all_types["6_mental"] | oth_1
 
-    # Best Param dict
-    gs_param_dict = {}
-    gs_param_dict['nb'] = {}
-    gs_param_dict['knn'] = {}
-
-    # Print out the current best parameters for evaluation dataset
-    # Before fit search, scale the dataset first.
-    X_train_eval = df_train_eval[feature_columns_selected]
-    y_train_eval = df_train_eval[target_name]
-    X_test = df_holdout[feature_columns_selected]
-    y_test = df_holdout[target_name]
-
-    scalar.fit(X_train_eval)
-
-    X_train_eval = pd.DataFrame(
-        scalar.transform(X_train_eval), columns=X_train_eval.columns, index=X_train_eval.index
+    feature_fourtype_dict["all_variables_till3y"] = (
+        feature_fourtype_dict["other"]
+        | feature_fourtype_dict["environmental"]
+        | feature_fourtype_dict["clinic"]
+        | feature_fourtype_dict["genetic"]
     )
 
-    X_test = pd.DataFrame(
-        scalar.transform(X_test), columns=X_test.columns, index=X_test.index
-    )
+    print(f"The available keys are {feature_fourtype_dict.keys()}")
 
-    ###############################Logistic Regression########################################
-    gs_lr = GridSearchCV(clf_lr, param_grid_lr, cv=cv_for_tune, scoring=scoring_for_tune)
-    print(f"Search for the best parameters for lr in {param_grid_lr}....")
-    gs_lr.fit(
-        X_train_eval, y_train_eval
-    )
-    gs_param_dict['lr']=gs_lr.best_params_
-    print(
-        f"The best parameters for Logistic Regression are: {gs_lr.best_params_} with the score of {gs_lr.best_score_}")
-
-    ###############################Decision Tree########################################
-    gs_dt = GridSearchCV(clf_dt, param_grid_dt, cv=cv_for_tune, scoring=scoring_for_tune)
-    print(f"Search for the best parameters for dt in {param_grid_dt}....")
-    gs_dt.fit(
-        X_train_eval, y_train_eval
-    )
-    gs_param_dict['dt'] = gs_dt.best_params_
-    print(f"The best parameters for Decision Tree are: {gs_dt.best_params_} with the score of {gs_dt.best_score_}")
-
-    ###############################Support Vector Machine########################################
-    gs_svc = GridSearchCV(clf_svc, param_grid_svc, cv=cv_for_tune, scoring=scoring_for_tune)
-    print(f"Search for the best parameters for svc  in {param_grid_svc}....")
-    gs_svc.fit(
-        X_train_eval, y_train_eval
-    )
-    gs_param_dict['svc'] = gs_svc.best_params_
-    print(
-        f"The best parameters for Support Vector Machine are:{gs_svc.best_params_} with the score of {gs_svc.best_score_}")
-
-    ###############################Random Forest########################################
-    gs_rf = GridSearchCV(clf_rf, param_grid_rf, cv=cv_for_tune, scoring=scoring_for_tune)
-    print(f"Search for the best parameters for rf in {param_grid_rf}....")
-    gs_rf.fit(
-        X_train_eval, y_train_eval
-    )
-    gs_param_dict['rf'] = gs_rf.best_params_
-    print(f"The best parameters for Random Forest are: {gs_rf.best_params_} with the score of {gs_rf.best_score_}")
-
-    ###############################XGBoost########################################
-    gs_xgb = GridSearchCV(clf_xgb, param_grid_xgb, cv=cv_for_tune, scoring=scoring_for_tune)
-    print(f"Search for the best parameters for xgb in {param_grid_xgb}....")
-    gs_xgb.fit(
-        X_train_eval, y_train_eval
-    )
-    gs_param_dict['xgb'] = gs_xgb.best_params_
-    print(f"The best parameters for XGBoost are: {gs_xgb.best_params_} with the score of {gs_xgb.best_score_}")
-
-
-    # Quick Visualize Result with tuned hyperparameters
-    # (1) Logistic Regression
-    lr_cv_performance = model_result_holdout(
-        df_train_eval,
-        df_holdout,
-        feature_columns_selected,
-        target_name,
-        estimator=LogisticRegression(class_weight="balanced", **gs_param_dict['lr']),
-        scalar=MinMaxScaler(),
-    )
-    ConfusionMatrixDisplay.from_predictions(
-        lr_cv_performance[0]["y_true_holdout"],
-        lr_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-    )
-
-    print(
-        classification_report(
-            lr_cv_performance[0]["y_true_holdout"],
-            lr_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-        )
-    )
-
-    lr_imp_features = pd.DataFrame(
-        data=lr_cv_performance[1].coef_.reshape(1, -1)[0],
-        index=list(feature_columns_selected),
-        columns=["Logistic Regression"],
-    )
-    lr_imp_features.sort_values("Logistic Regression", ascending=False, inplace=True)
-    plt.figure(figsize=(12, 8), dpi=200)
-    sns.barplot(
-        data=lr_imp_features, y=lr_imp_features.index, x=lr_imp_features["Logistic Regression"],
-    )
-
-    # (2) Decision Tree
-    dt_cv_performance = model_result_holdout(
-        df_train_eval,
-        df_holdout,
-        feature_columns_selected,
-        target_name,
-        estimator=DecisionTreeClassifier(class_weight="balanced", random_state=2021, **gs_param_dict['dt']),
-        scalar=MinMaxScaler(),
-    )
-
-    ConfusionMatrixDisplay.from_predictions(
-        dt_cv_performance[0]["y_true_holdout"],
-        dt_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-    )
-
-    print(
-        classification_report(
-            dt_cv_performance[0]["y_true_holdout"],
-            dt_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-        )
-    )
-
-    dt_imp_features = pd.DataFrame(
-        data=dt_cv_performance[1].feature_importances_.reshape(1, -1)[0],
-        index=list(feature_columns_selected),
-        columns=["Decision Tree"],
-    )
-    dt_imp_features.sort_values("Decision Tree", ascending=False, inplace=True)
-    plt.figure(figsize=(12, 8), dpi=200)
-    sns.barplot(
-        data=dt_imp_features, y=dt_imp_features.index, x=dt_imp_features["Decision Tree"],
-    )
-
-    # (3) Support Vector Machine
-    svc_cv_performance = model_result_holdout(
-        df_train_eval,
-        df_holdout,
-        feature_columns_selected,
-        target_name,
-        estimator=SVC(
-            class_weight="balanced",
-            probability=True,
-            random_state=2021,
-            **gs_param_dict['svc']
-        ),
-        scalar=MinMaxScaler(),
-    )
-    ConfusionMatrixDisplay.from_predictions(
-        svc_cv_performance[0]["y_true_holdout"],
-        svc_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-    )
-
-    print(
-        classification_report(
-            svc_cv_performance[0]["y_true_holdout"],
-            svc_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-        )
-    )
-
-    permutation_result = permutation_importance(
-        svc_cv_performance[1],
-        df_train_eval[feature_columns_selected],
-        df_train_eval[target_name],
-        n_repeats=12,
-        random_state=2021,
-        scoring="average_precision",
-    )
-
-    # Visualization of feature importance for permutation importance
-    perm_sorted_idx = permutation_result.importances_mean.argsort()
-    plt.figure(figsize=(20, 10))
-    plt.title("Feature Importance for {}".format("SVC"))
-    plt.barh(
-        width=permutation_result.importances_mean[perm_sorted_idx].T,
-        y=df_train_eval[feature_columns_selected].columns[perm_sorted_idx],
-    )
-
-    # (4) Random Forest
-    rf_cv_performance = model_result_holdout(
-        df_train_eval,
-        df_holdout,
-        feature_columns_selected,
-        target_name,
-        estimator=RandomForestClassifier(
-            class_weight="balanced",
-            random_state=2021,
-            **gs_param_dict['rf']
-        ),
-        scalar=MinMaxScaler(),
-    )
-    ConfusionMatrixDisplay.from_predictions(
-        rf_cv_performance[0]["y_true_holdout"],
-        rf_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-    )
-
-    print(
-        classification_report(
-            rf_cv_performance[0]["y_true_holdout"],
-            rf_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-        )
-    )
-
-    rf_imp_features = pd.DataFrame(
-        data=rf_cv_performance[1].feature_importances_.reshape(1, -1)[0],
-        index=list(feature_columns_selected),
-        columns=["Random Forest"],
-    )
-    rf_imp_features.sort_values("Random Forest", ascending=False, inplace=True)
-    plt.figure(figsize=(12, 8), dpi=200)
-    sns.barplot(
-        data=rf_imp_features, y=rf_imp_features.index, x=rf_imp_features["Random Forest"],
-    )
-
-    # (5) XGBoost
-    xgb_cv_performance = model_result_holdout(
-        df_train_eval,
-        df_holdout,
-        feature_columns_selected,
-        target_name,
-        estimator=XGBClassifier(
-            random_state=2021,
-#            verbosity=0,
-            **gs_param_dict['xgb']
-        ),
-        scalar=MinMaxScaler(),
-    )
-    ConfusionMatrixDisplay.from_predictions(
-        xgb_cv_performance[0]["y_true_holdout"],
-        xgb_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-    )
-
-    print(
-        classification_report(
-            xgb_cv_performance[0]["y_true_holdout"],
-            xgb_cv_performance[0]["y_predicted_holdout_altered_threshold"],
-        )
-    )
-
-    xgb_imp_features = pd.DataFrame(
-        data=xgb_cv_performance[1].feature_importances_.reshape(1, -1)[0],
-        index=list(feature_columns_selected),
-        columns=["XGBoost"],
-    )
-    xgb_imp_features.sort_values("XGBoost", ascending=False, inplace=True)
-    plt.figure(figsize=(12, 8), dpi=200)
-    sns.barplot(
-        data=xgb_imp_features, y=xgb_imp_features.index, x=xgb_imp_features["XGBoost"],
-    )
-
-    return gs_param_dict
-
-
-
-# Automatic Feature Selection At Multiple time-points  with specific ML model
-def ml_autofs_multiplepoints(
-        df_train_eval,
-        df_holdout,
-        four_time_dict,
-        scalar=MinMaxScaler(),
-        estimator=LogisticRegression(class_weight="balanced"),
-        estimator_name='lr',
-        cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
-        priori_k=25,
-        precision_inspection_range=0.005,
-        fixed_features=None,
-        scoring="average_precision",
-):
-    # Keep feature selection results in multiple time points
-    res = {}
-    res["at_birth"] = ml_feature_selection(
-        X=df_train_eval[four_time_dict["at_birth_feature"]],
-        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
-        scalar=scalar,
-        cv=cv,
-        priori_k=priori_k,
-        scoring=scoring,
-        is_floating=True,
-        fixed_features=fixed_features,
-        precision_inspection_range=precision_inspection_range,
-        test_model_number=0,
-        clf=(estimator, estimator_name)
-    )
-
-    res["before_6m"] = ml_feature_selection(
-        X=df_train_eval[set(res["at_birth"][1].index) | four_time_dict["with_6m"]],
-        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
-        scalar=scalar,
-        cv=cv,
-        priori_k=priori_k,
-        scoring=scoring,
-        is_floating=True,
-        fixed_features=fixed_features,
-        precision_inspection_range=precision_inspection_range,
-        test_model_number=0,
-        clf=(estimator, estimator_name)
-    )
-    res["before_12m"] = ml_feature_selection(
-        X=df_train_eval[set(res["before_6m"][1].index) | four_time_dict["with_12m"]],
-        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
-        scalar=scalar,
-        cv=cv,
-        priori_k=priori_k,
-        scoring=scoring,
-        is_floating=True,
-        fixed_features=fixed_features,
-        precision_inspection_range=precision_inspection_range,
-        test_model_number=0,
-        clf=(estimator, estimator_name)
-    )
-    res["before_36m"] = ml_feature_selection(
-        X=df_train_eval[
-            set(res["before_12m"][1].index)
-            | four_time_dict["with_36m_exclude_diagnosis"]
-        ],
-        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
-        scalar=scalar,
-        cv=cv,
-        priori_k=priori_k,
-        scoring=scoring,
-        is_floating=True,
-        fixed_features=fixed_features,
-        precision_inspection_range=precision_inspection_range,
-        test_model_number=0,
-        clf=(estimator, estimator_name)
-    )
-
-    # List feature selection at different time points
-    res_df = pd.concat(
-        [
-            res["at_birth"][0],
-            res["before_6m"][0],
-            res["before_12m"][0],
-            res["before_36m"][0],
-        ]
-    )
-    res_df.index = res.keys()
-
-    # View confusion matrix and keep model performance on holdout dataset
-
-    holdout_res = {} # Contains prediction and estimators
-    feature_res = {} # Contains feature importance for each model
-
-    for time_points in list(res.keys()):
-        holdout_res[time_points] = model_result_holdout(
-            df_train_eval,
-            df_holdout,
-            feature_columns_selected=list(res[time_points][1].index),
-            target_name="Asthma_Diagnosis_5yCLA",
-            estimator=estimator,
-            scalar=scalar,
-        )
-        ConfusionMatrixDisplay.from_predictions(
-            holdout_res[time_points][0]["y_true_holdout"],
-            holdout_res[time_points][0]["y_predicted_holdout_altered_threshold"],
-        )
-
-        print(
-            classification_report(
-                holdout_res[time_points][0]["y_true_holdout"],
-                holdout_res[time_points][0]["y_predicted_holdout_altered_threshold"],
-            )
-        )
-
-        if estimator_name in ['lr']:  # Coefficient for LogisticRegression
-
-            feature_res[time_points] = pd.DataFrame(
-                data=holdout_res[time_points][1].coef_.reshape(1, -1)[0],
-                index=list(res[time_points][1].index),
-                columns=[estimator_name],
-            )
-
-
-        elif estimator_name in ['dt', 'rf', 'xgb']:  # Feature Importance
-            feature_res[time_points] = pd.DataFrame(
-                data=holdout_res[time_points][1].feature_importances_.reshape(1, -1)[0],
-                index=list(res[time_points][1].index),
-                columns=[estimator_name],
-            )
-
-        else:  # Permutation importance
-
-            permutation_result = permutation_importance(
-                holdout_res[time_points][1],
-                df_train_eval[list(res[time_points][1].index)],
-                df_train_eval["Asthma_Diagnosis_5yCLA"],
-                n_repeats=15,
-                random_state=2021,
-                scoring="average_precision",
-            )
-
-            feature_res[time_points] = pd.DataFrame(
-                data=permutation_result["importances_mean"].reshape(1, -1)[0],
-                index=list(res[time_points][1].index),
-                columns=[estimator_name],
-            )
-        feature_res[time_points].sort_values(estimator_name, ascending=False, inplace=True)
-        plt.figure(figsize=(12, 8), dpi=200)
-        sns.barplot(
-            data=feature_res[time_points], y=feature_res[time_points].index, x=feature_res[time_points][estimator_name],
-        )
-
-    return res_df, holdout_res, feature_res
-
+    return feature_fourtype_dict
 
 # Calculate and visualize the feature importance change and model predictability over 4 different time points
 def ml_res_visualization(
@@ -1195,12 +583,6 @@ def ml_res_visualization(
 
     return ml_res_dict, feature_importance_dict, model_perform_df
 
-def filter_features(x, threshold=0.015):
-    if x <= threshold:
-        x = np.nan
-    return x
-
-
 def feature_progression_merge(
     ml_res_final,
     ml_list=["lr", "rf", "xgb", "svc", "dt"],
@@ -1301,18 +683,7 @@ def feature_progression_merge(
 
     return feature_df_merged
 
-
-
-# For dataframe apply lambda usage to change features into categories
-def category_detection(keywords, four_type_dict):
-    for keys in list(four_type_dict.keys())[:4]:
-        if keywords in four_type_dict[keys]:
-            return keys.title()
-    else:
-        return np.nan
-
-
-# Create dataframe for visualize categorized feature importance at multiple timepoints
+# Create dataframe for visualize category (instead of feature) importance at multiple timepoints
 def feature_category_dataframe(
     ml_res_final,
     df,
@@ -1675,6 +1046,187 @@ def ml_ensemble_res(
     return ensemble_model_performance
 
 
+# Calculate and visualize the ensemble model performance at different time points with input of ml_res_final
+def ml_individual_res(
+    df_train_eval,
+    df_holdout,
+    ml_res_final,  # Contains the auto-selected features for different models at different timepoints
+    scalar=MinMaxScaler(),
+    ci_bootstrap=True,
+    bootstrap_replace=True,
+    bootstrap_iterations=30,
+    subset_percentage=1,
+):
+    """
+    Use the selected feature at different time points from merged feature table to create multiple ensemble models.
+    :param df_train_eval
+    :param df_holdout
+    :param ml_res_final: complicated tuple, result of the function "ml_res_visualization()"
+    :param scalar: to process the train, eval, holdout dataset
+    :param ci_bootstrap: whether to perform bootstrap for current classifier
+    :param bootstrap_replace: if ci_bootstrap = True, whether to make replacement True for resampling of train eval dataset
+    :param bootstrap_iterations: specify how many iteration you want to run for each classifier
+    :return: Dataframe to overview the individual model performance at different timepoints
+    """
+    # Timepoints extracted using previously calculated ml_res_final
+    timepoints_list = ["at_birth", "before_6m", "before_12m", "before_36m"]
+
+    # Define Parameters of the individual estimators
+    lr = LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")
+
+    # Random Forest
+    rf = RandomForestClassifier(
+        n_estimators=100,
+        class_weight="balanced",
+        max_depth=3,
+        max_features=5,
+        random_state=2021,
+    )
+
+    # XGB
+    xgb = XGBClassifier(
+        max_depth=3,
+        learning_rate=0.01,
+        colsample_bytree=0.8,
+        scale_pos_weight=15,
+        subsample=0.8,
+        random_state=2021,
+        #    verbosity=False,
+    )
+    # SVC
+    svc = SVC(
+        C=0.02,
+        kernel="linear",
+        class_weight="balanced",
+        probability=True,
+        random_state=2021,
+    )
+    # Decision Tree
+    dt = DecisionTreeClassifier(
+        criterion="gini",
+        max_depth=6,  # Previous is None
+        class_weight="balanced",
+        random_state=2021,
+    )
+
+    individual_algorithms = {
+        "lr": [lr, "Logistic Regression"],
+        "rf": [rf, "Random Forest"],
+        "xgb": [xgb, "eXtreme Gradient Boost"],
+        "svc": [svc, "Support Vector Machine"],
+        "dt": [dt, "Decision Tree"],
+    }
+
+    individual_res_dict = {}
+
+    if ci_bootstrap:
+        for ind_name, ind_clf in individual_algorithms.items():
+            individual_res = {}
+            for timepoint in timepoints_list:
+                individual_res[timepoint] = model_metrics_bootstrapstats(
+                    df_train_eval,
+                    df_holdout,
+                    feature_columns_selected=list(
+                        ml_res_final[0][ind_name][0]["feature_names"][timepoint]
+                    ),
+                    target_name="Asthma_Diagnosis_5yCLA",
+                    bootstrap_replace=bootstrap_replace,
+                    bootstrap_iterations=bootstrap_iterations,
+                    subset_percentage=subset_percentage,
+                    confidence_alpha=0.95,
+                    estimator=ind_clf[0],
+                    scalar=scalar,
+                )
+            individual_res_dict[ind_name] = individual_res
+        individual_res_perf = {}
+        model_multiindex = []
+        model_metrics = [
+            "Average_Precision",
+            "Average_Precision_CI",
+            "ROC_AUC",
+            "ROC_AUC_CI",
+        ]
+        for individual_name, individual_model in individual_algorithms.items():
+            for timepoint in individual_res_dict[individual_name].keys():
+                individual_res_perf[individual_name + "-" + timepoint] = [
+                    individual_res_dict[individual_name][timepoint][0][
+                        "average_precision_score"
+                    ],
+                    individual_res_dict[individual_name][timepoint][0][
+                        "average_precision_CI"
+                    ],
+                    individual_res_dict[individual_name][timepoint][0]["roc_auc_score"],
+                    individual_res_dict[individual_name][timepoint][0]["roc_auc_CI"],
+                ]
+
+                model_multiindex.append(
+                    (individual_model[1], timepoint.replace("_", " ").title(),)
+                )
+        individual_model_performance = pd.DataFrame(
+            individual_res_perf, index=model_metrics
+        ).T
+        individual_model_performance.index = pd.MultiIndex.from_tuples(
+            model_multiindex, names=["Model", "Time Point"]
+        )
+
+    else:
+        for ind_name, ind_clf in individual_algorithms.items():
+            individual_res = {}
+            for timepoint in timepoints_list:
+                individual_res[timepoint] = model_result_holdout(
+                    df_train_eval,
+                    df_holdout,
+                    feature_columns_selected=list(
+                        ml_res_final[0][ind_name][0]["feature_names"][timepoint]
+                    ),
+                    target_name="Asthma_Diagnosis_5yCLA",
+                    estimator=ind_clf[0],
+                    scalar=scalar,
+                    voting="hard",
+                    display=True,
+                )
+            individual_res_dict[ind_name] = individual_res
+        individual_res_perf = {}
+        model_multiindex = []
+        model_metrics = [
+            "Precision",
+            "Recall",
+            "F1",
+            "Average_precision",
+            "Roc_auc",
+        ]
+        for individual_name, individual_model in individual_algorithms.items():
+            for timepoint in individual_res_dict[individual_name].keys():
+                individual_res_perf[individual_name + "-" + timepoint] = [
+                    individual_res_dict[individual_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][0],
+                    individual_res_dict[individual_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][1],
+                    individual_res_dict[individual_name][timepoint][0][
+                        "precision_recall_f1_support"
+                    ][:, 1][2],
+                    individual_res_dict[individual_name][timepoint][0][
+                        "average_precision_score"
+                    ],
+                    individual_res_dict[individual_name][timepoint][0]["roc_auc_score"],
+                ]
+
+                model_multiindex.append(
+                    (individual_model[1], timepoint.replace("_", " ").title(),)
+                )
+
+        individual_model_performance = pd.DataFrame(
+            individual_res_perf, index=model_metrics
+        ).T
+        individual_model_performance.index = pd.MultiIndex.from_tuples(
+            model_multiindex, names=["Model", "Time Point"]
+        )
+
+    return individual_model_performance
+
+
 # Visualize the individual model performance & feature importance table at different time points
 def ml_individual_performance(df_train_eval,
         df_holdout,
@@ -1714,6 +1266,630 @@ def ml_individual_performance(df_train_eval,
         timepoint_res_dict[timepoint][2].style.background_gradient(cmap="Greens")
 
     return timepoint_res_dict
+
+# Auto-tuning for multiple models with manually selected features, print out best params and display confusion matrix results
+def ml_tuned_run(df_train_eval,
+                 df_holdout,
+                 feature_columns_selected,
+                 target_name,
+                 scalar=MinMaxScaler(),
+                 cv_for_tune=StratifiedKFold(n_splits=3, random_state=4, shuffle=True),
+                 scoring_for_tune="average_precision",
+                 ):
+    # List of Model to perform Grid Search
+    # clf_lr = LogisticRegression(class_weight="balanced")
+    # clf_dt = DecisionTreeClassifier(class_weight="balanced", random_state=2021)
+    # clf_svc = SVC(class_weight="balanced", probability=True, random_state=2021)
+    # clf_rf = RandomForestClassifier(class_weight="balanced", random_state=2021)
+    # clf_xgb = XGBClassifier(random_state=2021, verbosity=False)
+
+    clf_lr = LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")
+
+    # Random Forest
+    clf_rf = RandomForestClassifier(
+        n_estimators=100,
+        class_weight="balanced",
+        max_depth=3,
+        max_features=5,
+        random_state=2021,
+    )
+
+    # XGB
+    clf_xgb = XGBClassifier(
+        max_depth=3,
+        learning_rate=0.01,
+        colsample_bytree=0.8,
+        scale_pos_weight=15,
+        subsample=0.8,
+        random_state=2021,
+#        verbosity=False,
+    )
+    # SVC
+    clf_svc = SVC(
+        C=0.02,
+        kernel="linear",
+        class_weight="balanced",
+        probability=True,
+        random_state=2021,
+    )
+    # Decision Tree
+    clf_dt = DecisionTreeClassifier(
+        criterion="gini",
+        max_depth=6,  # Previous is None
+        class_weight="balanced",
+        random_state=2021,
+    )
+
+    # Define param grid for hyperparmeter tuning
+    param_grid_lr = {
+        "solver": ["lbfgs", "liblinear", "saga"], #default=’lbfgs’
+        "C": [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1], #  default: 1
+    }
+
+    param_grid_dt = {
+        "criterion": ["gini", "entropy"], #default=”gini”
+        "max_depth": [3, 4, 5, 6, 7, None], #default=None
+        "min_samples_split": [2, 4],#default=2
+        "max_features": ["sqrt", 0.8, None], #default=None
+    }
+
+    param_grid_svc = {
+        "kernel": ["linear", "poly", "rbf", "sigmoid"], #default=’rbf’
+        "C": [0.02, 0.05, 0.1, 0.2, 0.5, 1], #default=1
+    }
+
+    param_grid_rf = {
+        "max_depth": [3, 4, 5, 6], #default=None
+        "max_features": [4, 5, 6, 7, 8], #default=None
+    }
+
+    param_grid_xgb = {
+        "learning_rate": [1e-2, 5e-2, 1e-1, 3e-1], #default=0.3
+        "max_depth": [3, 4, 5, 6], #default=6
+        "colsample_bytree": [0.5, 0.75, 1],#default=1
+        "scale_pos_weight": [7, 10, 15], # equivalent to class_weight, default = 1
+    }
+
+    # Best Param dict
+    gs_param_dict = {}
+    gs_param_dict['nb'] = {}
+    gs_param_dict['knn'] = {}
+
+    # Print out the current best parameters for evaluation dataset
+    # Before fit search, scale the dataset first.
+    X_train_eval = df_train_eval[feature_columns_selected]
+    y_train_eval = df_train_eval[target_name]
+    X_test = df_holdout[feature_columns_selected]
+    y_test = df_holdout[target_name]
+
+    scalar.fit(X_train_eval)
+
+    X_train_eval = pd.DataFrame(
+        scalar.transform(X_train_eval), columns=X_train_eval.columns, index=X_train_eval.index
+    )
+
+    X_test = pd.DataFrame(
+        scalar.transform(X_test), columns=X_test.columns, index=X_test.index
+    )
+
+    ###############################Logistic Regression########################################
+    gs_lr = GridSearchCV(clf_lr, param_grid_lr, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for lr in {param_grid_lr}....")
+    gs_lr.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['lr']=gs_lr.best_params_
+    print(
+        f"The best parameters for Logistic Regression are: {gs_lr.best_params_} with the score of {gs_lr.best_score_}")
+
+    ###############################Decision Tree########################################
+    gs_dt = GridSearchCV(clf_dt, param_grid_dt, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for dt in {param_grid_dt}....")
+    gs_dt.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['dt'] = gs_dt.best_params_
+    print(f"The best parameters for Decision Tree are: {gs_dt.best_params_} with the score of {gs_dt.best_score_}")
+
+    ###############################Support Vector Machine########################################
+    gs_svc = GridSearchCV(clf_svc, param_grid_svc, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for svc  in {param_grid_svc}....")
+    gs_svc.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['svc'] = gs_svc.best_params_
+    print(
+        f"The best parameters for Support Vector Machine are:{gs_svc.best_params_} with the score of {gs_svc.best_score_}")
+
+    ###############################Random Forest########################################
+    gs_rf = GridSearchCV(clf_rf, param_grid_rf, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for rf in {param_grid_rf}....")
+    gs_rf.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['rf'] = gs_rf.best_params_
+    print(f"The best parameters for Random Forest are: {gs_rf.best_params_} with the score of {gs_rf.best_score_}")
+
+    ###############################XGBoost########################################
+    gs_xgb = GridSearchCV(clf_xgb, param_grid_xgb, cv=cv_for_tune, scoring=scoring_for_tune)
+    print(f"Search for the best parameters for xgb in {param_grid_xgb}....")
+    gs_xgb.fit(
+        X_train_eval, y_train_eval
+    )
+    gs_param_dict['xgb'] = gs_xgb.best_params_
+    print(f"The best parameters for XGBoost are: {gs_xgb.best_params_} with the score of {gs_xgb.best_score_}")
+
+
+    # Quick Visualize Result with tuned hyperparameters
+    # (1) Logistic Regression
+    lr_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=LogisticRegression(class_weight="balanced", **gs_param_dict['lr']),
+        scalar=MinMaxScaler(),
+    )
+    ConfusionMatrixDisplay.from_predictions(
+        lr_cv_performance[0]["y_true_holdout"],
+        lr_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+    )
+
+    print(
+        classification_report(
+            lr_cv_performance[0]["y_true_holdout"],
+            lr_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+        )
+    )
+
+    lr_imp_features = pd.DataFrame(
+        data=lr_cv_performance[1].coef_.reshape(1, -1)[0],
+        index=list(feature_columns_selected),
+        columns=["Logistic Regression"],
+    )
+    lr_imp_features.sort_values("Logistic Regression", ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=lr_imp_features, y=lr_imp_features.index, x=lr_imp_features["Logistic Regression"],
+    )
+
+    # (2) Decision Tree
+    dt_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=DecisionTreeClassifier(class_weight="balanced", random_state=2021, **gs_param_dict['dt']),
+        scalar=MinMaxScaler(),
+    )
+
+    ConfusionMatrixDisplay.from_predictions(
+        dt_cv_performance[0]["y_true_holdout"],
+        dt_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+    )
+
+    print(
+        classification_report(
+            dt_cv_performance[0]["y_true_holdout"],
+            dt_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+        )
+    )
+
+    dt_imp_features = pd.DataFrame(
+        data=dt_cv_performance[1].feature_importances_.reshape(1, -1)[0],
+        index=list(feature_columns_selected),
+        columns=["Decision Tree"],
+    )
+    dt_imp_features.sort_values("Decision Tree", ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=dt_imp_features, y=dt_imp_features.index, x=dt_imp_features["Decision Tree"],
+    )
+
+    # (3) Support Vector Machine
+    svc_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=SVC(
+            class_weight="balanced",
+            probability=True,
+            random_state=2021,
+            **gs_param_dict['svc']
+        ),
+        scalar=MinMaxScaler(),
+    )
+    ConfusionMatrixDisplay.from_predictions(
+        svc_cv_performance[0]["y_true_holdout"],
+        svc_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+    )
+
+    print(
+        classification_report(
+            svc_cv_performance[0]["y_true_holdout"],
+            svc_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+        )
+    )
+
+    permutation_result = permutation_importance(
+        svc_cv_performance[1],
+        df_train_eval[feature_columns_selected],
+        df_train_eval[target_name],
+        n_repeats=12,
+        random_state=2021,
+        scoring="average_precision",
+    )
+
+    # Visualization of feature importance for permutation importance
+    perm_sorted_idx = permutation_result.importances_mean.argsort()
+    plt.figure(figsize=(20, 10))
+    plt.title("Feature Importance for {}".format("SVC"))
+    plt.barh(
+        width=permutation_result.importances_mean[perm_sorted_idx].T,
+        y=df_train_eval[feature_columns_selected].columns[perm_sorted_idx],
+    )
+
+    # (4) Random Forest
+    rf_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=RandomForestClassifier(
+            class_weight="balanced",
+            random_state=2021,
+            **gs_param_dict['rf']
+        ),
+        scalar=MinMaxScaler(),
+    )
+    ConfusionMatrixDisplay.from_predictions(
+        rf_cv_performance[0]["y_true_holdout"],
+        rf_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+    )
+
+    print(
+        classification_report(
+            rf_cv_performance[0]["y_true_holdout"],
+            rf_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+        )
+    )
+
+    rf_imp_features = pd.DataFrame(
+        data=rf_cv_performance[1].feature_importances_.reshape(1, -1)[0],
+        index=list(feature_columns_selected),
+        columns=["Random Forest"],
+    )
+    rf_imp_features.sort_values("Random Forest", ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=rf_imp_features, y=rf_imp_features.index, x=rf_imp_features["Random Forest"],
+    )
+
+    # (5) XGBoost
+    xgb_cv_performance = model_result_holdout(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        estimator=XGBClassifier(
+            random_state=2021,
+#            verbosity=0,
+            **gs_param_dict['xgb']
+        ),
+        scalar=MinMaxScaler(),
+    )
+    ConfusionMatrixDisplay.from_predictions(
+        xgb_cv_performance[0]["y_true_holdout"],
+        xgb_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+    )
+
+    print(
+        classification_report(
+            xgb_cv_performance[0]["y_true_holdout"],
+            xgb_cv_performance[0]["y_predicted_holdout_altered_threshold"],
+        )
+    )
+
+    xgb_imp_features = pd.DataFrame(
+        data=xgb_cv_performance[1].feature_importances_.reshape(1, -1)[0],
+        index=list(feature_columns_selected),
+        columns=["XGBoost"],
+    )
+    xgb_imp_features.sort_values("XGBoost", ascending=False, inplace=True)
+    plt.figure(figsize=(12, 8), dpi=200)
+    sns.barplot(
+        data=xgb_imp_features, y=xgb_imp_features.index, x=xgb_imp_features["XGBoost"],
+    )
+
+    return gs_param_dict
+
+
+# Automatic Feature Selection At Multiple time-points  with specific ML model
+def ml_autofs_multiplepoints(
+        df_train_eval,
+        df_holdout,
+        four_time_dict,
+        scalar=MinMaxScaler(),
+        estimator=LogisticRegression(class_weight="balanced"),
+        estimator_name='lr',
+        cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
+        priori_k=25,
+        precision_inspection_range=0.005,
+        fixed_features=None,
+        scoring="average_precision",
+):
+    # Keep feature selection results in multiple time points
+    res = {}
+    res["at_birth"] = ml_feature_selection(
+        X=df_train_eval[four_time_dict["at_birth_feature"]],
+        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+        scalar=scalar,
+        cv=cv,
+        priori_k=priori_k,
+        scoring=scoring,
+        is_floating=True,
+        fixed_features=fixed_features,
+        precision_inspection_range=precision_inspection_range,
+        test_model_number=0,
+        clf=(estimator, estimator_name)
+    )
+
+    res["before_6m"] = ml_feature_selection(
+        X=df_train_eval[set(res["at_birth"][1].index) | four_time_dict["with_6m"]],
+        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+        scalar=scalar,
+        cv=cv,
+        priori_k=priori_k,
+        scoring=scoring,
+        is_floating=True,
+        fixed_features=fixed_features,
+        precision_inspection_range=precision_inspection_range,
+        test_model_number=0,
+        clf=(estimator, estimator_name)
+    )
+    res["before_12m"] = ml_feature_selection(
+        X=df_train_eval[set(res["before_6m"][1].index) | four_time_dict["with_12m"]],
+        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+        scalar=scalar,
+        cv=cv,
+        priori_k=priori_k,
+        scoring=scoring,
+        is_floating=True,
+        fixed_features=fixed_features,
+        precision_inspection_range=precision_inspection_range,
+        test_model_number=0,
+        clf=(estimator, estimator_name)
+    )
+    res["before_36m"] = ml_feature_selection(
+        X=df_train_eval[
+            set(res["before_12m"][1].index)
+            | four_time_dict["with_36m_exclude_diagnosis"]
+        ],
+        y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+        scalar=scalar,
+        cv=cv,
+        priori_k=priori_k,
+        scoring=scoring,
+        is_floating=True,
+        fixed_features=fixed_features,
+        precision_inspection_range=precision_inspection_range,
+        test_model_number=0,
+        clf=(estimator, estimator_name)
+    )
+
+    # List feature selection at different time points
+    res_df = pd.concat(
+        [
+            res["at_birth"][0],
+            res["before_6m"][0],
+            res["before_12m"][0],
+            res["before_36m"][0],
+        ]
+    )
+    res_df.index = res.keys()
+
+    # View confusion matrix and keep model performance on holdout dataset
+
+    holdout_res = {} # Contains prediction and estimators
+    feature_res = {} # Contains feature importance for each model
+
+    for time_points in list(res.keys()):
+        holdout_res[time_points] = model_result_holdout(
+            df_train_eval,
+            df_holdout,
+            feature_columns_selected=list(res[time_points][1].index),
+            target_name="Asthma_Diagnosis_5yCLA",
+            estimator=estimator,
+            scalar=scalar,
+        )
+        ConfusionMatrixDisplay.from_predictions(
+            holdout_res[time_points][0]["y_true_holdout"],
+            holdout_res[time_points][0]["y_predicted_holdout_altered_threshold"],
+        )
+
+        print(
+            classification_report(
+                holdout_res[time_points][0]["y_true_holdout"],
+                holdout_res[time_points][0]["y_predicted_holdout_altered_threshold"],
+            )
+        )
+
+        if estimator_name in ['lr']:  # Coefficient for LogisticRegression
+
+            feature_res[time_points] = pd.DataFrame(
+                data=holdout_res[time_points][1].coef_.reshape(1, -1)[0],
+                index=list(res[time_points][1].index),
+                columns=[estimator_name],
+            )
+
+
+        elif estimator_name in ['dt', 'rf', 'xgb']:  # Feature Importance
+            feature_res[time_points] = pd.DataFrame(
+                data=holdout_res[time_points][1].feature_importances_.reshape(1, -1)[0],
+                index=list(res[time_points][1].index),
+                columns=[estimator_name],
+            )
+
+        else:  # Permutation importance
+
+            permutation_result = permutation_importance(
+                holdout_res[time_points][1],
+                df_train_eval[list(res[time_points][1].index)],
+                df_train_eval["Asthma_Diagnosis_5yCLA"],
+                n_repeats=15,
+                random_state=2021,
+                scoring="average_precision",
+            )
+
+            feature_res[time_points] = pd.DataFrame(
+                data=permutation_result["importances_mean"].reshape(1, -1)[0],
+                index=list(res[time_points][1].index),
+                columns=[estimator_name],
+            )
+        feature_res[time_points].sort_values(estimator_name, ascending=False, inplace=True)
+        plt.figure(figsize=(12, 8), dpi=200)
+        sns.barplot(
+            data=feature_res[time_points], y=feature_res[time_points].index, x=feature_res[time_points][estimator_name],
+        )
+
+    return res_df, holdout_res, feature_res
+
+def grouped_feature_generator(df):
+    """
+    Automaticly generate subset of variables to facilitate the feature selection, feature imputation, as well as time-point longitudinal ML analysis process.
+    :param df Dataframe to be operated on
+    :return: two dictionaries containing groupped features, and features at different time points
+
+    Example:
+    feature_dict, timepoint_dict, feature_grouped_overview, time_grouped_overview = grouped_feature_generator(df)
+    """
+
+    # To facilitate the selections of features as well as the multivariate imputation for grouped features to build models
+    feature_grouped_dict = {}
+
+    feature_grouped_mapping = {
+        "1_weight": "^Weight_",
+        "2_mother_condition": "^Prenatal_",
+        "3_first10min": "10min_",
+        "4_breastfeeding": "^BF_",
+        "5_home": "^Home",
+        "6_mental": "^PSS_|^CESD_",
+        "7_parental": "Mother|Father|Dad|Mom|Parental",
+        "8_smoke": "Smoke",
+        "9_wheeze": "Wheeze",
+        "10_resp": "Respiratory|RI",
+        "11_antibiotic": "Antibiotic",
+    }
+
+    for k, v in feature_grouped_mapping.items():
+        feature_grouped_dict[k] = set(df.columns[df.columns.str.contains(v)])
+
+    feature_grouped_dict["1_11"] = set()
+    for i in feature_grouped_dict.values():
+        feature_grouped_dict["1_11"].update(i)
+
+    feature_grouped_dict["12_misc"] = (
+            set(df.columns)
+            - feature_grouped_dict["1_11"]
+            - set(df.columns[df.columns.str.contains("yCLA")])
+            - {"y"}
+    )
+
+    temp_current = set()
+    for i in feature_grouped_dict.values():
+        temp_current.update(i)
+
+    feature_grouped_dict["13_remainder"] = set(df.columns) - temp_current
+
+    # To facilitate the incorporation of features at different time points to build models
+    feature_timepoint_dict = {}
+
+    feature_timepoint_mapping = {
+        "3m": "3m",
+        "6m": "_6m",
+        "12m": "_12m|_1y",
+        "18m": "18m|BF_implied",
+        "24m": "24m|2y",
+        "36m": "36m|3y",
+        "48m": "48m|4y",
+        "60m": "60m|5y|Traj_Type",
+        "1_9m_2hy": "_1m$|9m|_2hy|_30m"
+    }
+
+    for k, v in feature_timepoint_mapping.items():
+        feature_timepoint_dict[k] = set(df.columns[df.columns.str.contains(v)])
+
+    feature_timepoint_dict["after_birth"] = set()
+
+    for i in feature_timepoint_dict.values():
+        feature_timepoint_dict["after_birth"].update(i)
+
+    feature_timepoint_dict["at_birth"] = (
+            set(df.columns) - feature_timepoint_dict["after_birth"] - {"y"}
+    )
+
+    target_repo = {
+        "Asthma_Diagnosis_3yCLA",
+        "Asthma_Diagnosis_5yCLA",
+        "Recurrent_Wheeze_1y",  # Self-report Wheeze at earliest time point
+        "Recurrent_Wheeze_3y",
+        "Recurrent_Wheeze_5y",
+        "Wheeze_Traj_Type",  # Derived by Vera Dai, Less NaN Value, 2+4 could be useful
+        "Medicine_for_Wheeze_5yCLA",  # More objective
+        "Viral_Asthma_3yCLA",  # No need to decide "possible" category
+        "Triggered_Asthma_3yCLA",
+        "Viral_Asthma_5yCLA",  # No need to decide "possible" category
+        "Triggered_Asthma_5yCLA",
+    }
+
+    print("------------------------------------------------------")
+    print(
+        "The available grouped feature can be one of: \n", feature_grouped_dict.keys()
+    )
+    print("------------------------------------------------------")
+    print(
+        "The available time-points for features can be one of: \n",
+        feature_timepoint_dict.keys(),
+    )
+    print("------------------------------------------------------")
+    print("Note: Target variable can be one of: \n", target_repo)
+    print("------------------------------------------------------")
+
+    feature_grouped_overview = pd.DataFrame(
+        [feature_grouped_dict.keys(), feature_grouped_dict.values()], index=["Type", "Features"]
+    ).T.set_index("Type").drop(index=["1_11"])
+
+    feature_grouped_overview.loc[-1] = str(target_repo)
+
+    feature_grouped_overview.rename(index={-1: "14_target"}, inplace=True)
+
+    time_variable_overview = (
+        pd.DataFrame(
+            [feature_timepoint_dict.keys(), feature_timepoint_dict.values()], index=["Time_Points", "Features"]
+        )
+            .T.set_index("Time_Points")
+            .drop(index=["1_9m_2hy"])
+    )
+
+    return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
+
+
+
+def filter_features(x, threshold=0.015):
+    if x <= threshold:
+        x = np.nan
+    return x
+
+
+# For dataframe apply lambda usage to change features into categories
+def category_detection(keywords, four_type_dict):
+    for keys in list(four_type_dict.keys())[:4]:
+        if keywords in four_type_dict[keys]:
+            return keys.title()
+    else:
+        return np.nan
+
 
 # View the highest performed features for various machine learning models
 def ml_feature_selection(
@@ -2129,186 +2305,6 @@ def model_metrics_bootstrapstats(
 
     return res_metrics, res_holdout
 
-
-# Calculate and visualize the ensemble model performance at different time points with input of ml_res_final
-def ml_individual_res(
-    df_train_eval,
-    df_holdout,
-    ml_res_final,  # Contains the auto-selected features for different models at different timepoints
-    scalar=MinMaxScaler(),
-    ci_bootstrap=True,
-    bootstrap_replace=True,
-    bootstrap_iterations=30,
-    subset_percentage=1,
-):
-    """
-    Use the selected feature at different time points from merged feature table to create multiple ensemble models.
-    :param df_train_eval
-    :param df_holdout
-    :param ml_res_final: complicated tuple, result of the function "ml_res_visualization()"
-    :param scalar: to process the train, eval, holdout dataset
-    :param ci_bootstrap: whether to perform bootstrap for current classifier
-    :param bootstrap_replace: if ci_bootstrap = True, whether to make replacement True for resampling of train eval dataset
-    :param bootstrap_iterations: specify how many iteration you want to run for each classifier
-    :return: Dataframe to overview the individual model performance at different timepoints
-    """
-    # Timepoints extracted using previously calculated ml_res_final
-    timepoints_list = ["at_birth", "before_6m", "before_12m", "before_36m"]
-
-    # Define Parameters of the individual estimators
-    lr = LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced")
-
-    # Random Forest
-    rf = RandomForestClassifier(
-        n_estimators=100,
-        class_weight="balanced",
-        max_depth=3,
-        max_features=5,
-        random_state=2021,
-    )
-
-    # XGB
-    xgb = XGBClassifier(
-        max_depth=3,
-        learning_rate=0.01,
-        colsample_bytree=0.8,
-        scale_pos_weight=15,
-        subsample=0.8,
-        random_state=2021,
-        #    verbosity=False,
-    )
-    # SVC
-    svc = SVC(
-        C=0.02,
-        kernel="linear",
-        class_weight="balanced",
-        probability=True,
-        random_state=2021,
-    )
-    # Decision Tree
-    dt = DecisionTreeClassifier(
-        criterion="gini",
-        max_depth=6,  # Previous is None
-        class_weight="balanced",
-        random_state=2021,
-    )
-
-    individual_algorithms = {
-        "lr": [lr, "Logistic Regression"],
-        "rf": [rf, "Random Forest"],
-        "xgb": [xgb, "eXtreme Gradient Boost"],
-        "svc": [svc, "Support Vector Machine"],
-        "dt": [dt, "Decision Tree"],
-    }
-
-    individual_res_dict = {}
-
-    if ci_bootstrap:
-        for ind_name, ind_clf in individual_algorithms.items():
-            individual_res = {}
-            for timepoint in timepoints_list:
-                individual_res[timepoint] = model_metrics_bootstrapstats(
-                    df_train_eval,
-                    df_holdout,
-                    feature_columns_selected=list(
-                        ml_res_final[0][ind_name][0]["feature_names"][timepoint]
-                    ),
-                    target_name="Asthma_Diagnosis_5yCLA",
-                    bootstrap_replace=bootstrap_replace,
-                    bootstrap_iterations=bootstrap_iterations,
-                    subset_percentage=subset_percentage,
-                    confidence_alpha=0.95,
-                    estimator=ind_clf[0],
-                    scalar=scalar,
-                )
-            individual_res_dict[ind_name] = individual_res
-        individual_res_perf = {}
-        model_multiindex = []
-        model_metrics = [
-            "Average_Precision",
-            "Average_Precision_CI",
-            "ROC_AUC",
-            "ROC_AUC_CI",
-        ]
-        for individual_name, individual_model in individual_algorithms.items():
-            for timepoint in individual_res_dict[individual_name].keys():
-                individual_res_perf[individual_name + "-" + timepoint] = [
-                    individual_res_dict[individual_name][timepoint][0][
-                        "average_precision_score"
-                    ],
-                    individual_res_dict[individual_name][timepoint][0][
-                        "average_precision_CI"
-                    ],
-                    individual_res_dict[individual_name][timepoint][0]["roc_auc_score"],
-                    individual_res_dict[individual_name][timepoint][0]["roc_auc_CI"],
-                ]
-
-                model_multiindex.append(
-                    (individual_model[1], timepoint.replace("_", " ").title(),)
-                )
-        individual_model_performance = pd.DataFrame(
-            individual_res_perf, index=model_metrics
-        ).T
-        individual_model_performance.index = pd.MultiIndex.from_tuples(
-            model_multiindex, names=["Model", "Time Point"]
-        )
-
-    else:
-        for ind_name, ind_clf in individual_algorithms.items():
-            individual_res = {}
-            for timepoint in timepoints_list:
-                individual_res[timepoint] = model_result_holdout(
-                    df_train_eval,
-                    df_holdout,
-                    feature_columns_selected=list(
-                        ml_res_final[0][ind_name][0]["feature_names"][timepoint]
-                    ),
-                    target_name="Asthma_Diagnosis_5yCLA",
-                    estimator=ind_clf[0],
-                    scalar=scalar,
-                    voting="hard",
-                    display=True,
-                )
-            individual_res_dict[ind_name] = individual_res
-        individual_res_perf = {}
-        model_multiindex = []
-        model_metrics = [
-            "Precision",
-            "Recall",
-            "F1",
-            "Average_precision",
-            "Roc_auc",
-        ]
-        for individual_name, individual_model in individual_algorithms.items():
-            for timepoint in individual_res_dict[individual_name].keys():
-                individual_res_perf[individual_name + "-" + timepoint] = [
-                    individual_res_dict[individual_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][0],
-                    individual_res_dict[individual_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][1],
-                    individual_res_dict[individual_name][timepoint][0][
-                        "precision_recall_f1_support"
-                    ][:, 1][2],
-                    individual_res_dict[individual_name][timepoint][0][
-                        "average_precision_score"
-                    ],
-                    individual_res_dict[individual_name][timepoint][0]["roc_auc_score"],
-                ]
-
-                model_multiindex.append(
-                    (individual_model[1], timepoint.replace("_", " ").title(),)
-                )
-
-        individual_model_performance = pd.DataFrame(
-            individual_res_perf, index=model_metrics
-        ).T
-        individual_model_performance.index = pd.MultiIndex.from_tuples(
-            model_multiindex, names=["Model", "Time Point"]
-        )
-
-    return individual_model_performance
 
 
 # An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility

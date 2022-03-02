@@ -276,13 +276,14 @@ def feature_selection(data_path='../data/'):
                                   'BF_18m': 'BF_18m', 'BF_24m': 'BF_24m'}
 
     features_of_maternal_stress = data_path + 'Maternal PSS CESD scores.xlsx'
+    # Change the incorrect naming in the excel
     variables_of_maternal_stress = {'SubjectNumber': 'Subject_Number',
-                                    'psssumr_pre36wk': 'PSS_36week', 'csedsumr_pre36wk': 'CSED_36week',
-                                    'psssumr_pre18wk': 'PSS_18week', 'csedsumr_pre18wk': 'CSED_18week',
-                                    'psssumr_6m': 'PSS_6m', 'csedsumr_6m': 'CSED_6m', 'psssumr_12m': 'PSS_12m',
-                                    'csedsumr_12m': 'CSED_12m',
-                                    'psssumr_18m': 'PSS_18m', 'csedsumr_18m': 'CSED_18m',
-                                    'psssumr_24m': 'PSS_24m', 'csedsumr_24m': 'CSED_24m'}
+                                    'psssumr_pre36wk': 'PSS_36week', 'csedsumr_pre36wk': 'CESD_36week',
+                                    'psssumr_pre18wk': 'PSS_18week', 'csedsumr_pre18wk': 'CESD_18week',
+                                    'psssumr_6m': 'PSS_6m', 'csedsumr_6m': 'CESD_6m', 'psssumr_12m': 'PSS_12m',
+                                    'csedsumr_12m': 'CESD_12m',
+                                    'psssumr_18m': 'PSS_18m', 'csedsumr_18m': 'CESD_18m',
+                                    'psssumr_24m': 'PSS_24m', 'csedsumr_24m': 'CESD_24m'}
 
     features_of_antibiotic = data_path + 'antibiotics first year of life.xlsx'
     variables_of_antibiotic = {'subjectnumber': 'Subject_Number', 'atbx_n': 'Number_of_AntibioticsCourse_12m',
@@ -439,12 +440,12 @@ def data_mapping(merged_df=None):
         ['Home_Furry_Pets_6m', 'Home_New_Furnitures_6m', 'Home_Presence_Smoke_6m']
     ].replace({8888: np.nan, 888: np.nan, 999: np.nan})
 
-    # Maternal Mental
-    df_mapping[['PSS_36week', 'CSED_36week', 'PSS_18week', 'CSED_18week', 'PSS_6m',
-                'CSED_6m', 'PSS_12m', 'CSED_12m', 'PSS_18m', 'CSED_18m', 'PSS_24m',
-                'CSED_24m']] = df_mapping[['PSS_36week', 'CSED_36week', 'PSS_18week', 'CSED_18week', 'PSS_6m',
-                                           'CSED_6m', 'PSS_12m', 'CSED_12m', 'PSS_18m', 'CSED_18m', 'PSS_24m',
-                                           'CSED_24m']].replace({8888.0: np.nan, 999.0: np.nan})
+    # Maternal Mental Renamed
+    df_mapping[['PSS_36week', 'CESD_36week', 'PSS_18week', 'CESD_18week', 'PSS_6m',
+                'CESD_6m', 'PSS_12m', 'CESD_12m', 'PSS_18m', 'CESD_18m', 'PSS_24m',
+                'CESD_24m']] = df_mapping[['PSS_36week', 'CESD_36week', 'PSS_18week', 'CESD_18week', 'PSS_6m',
+                                           'CESD_6m', 'PSS_12m', 'CESD_12m', 'PSS_18m', 'CESD_18m', 'PSS_24m',
+                                           'CESD_24m']].replace({8888.0: np.nan, 999.0: np.nan})
 
     # Parental allergy history
     df_mapping[['Wheeze_Mother',
