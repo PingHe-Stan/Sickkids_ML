@@ -3,7 +3,7 @@ __contact__ = 'stan.he@sickkids.ca'
 __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
             '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11',
-            "2022-02-17"]
+            "2022-02-17", '2022-03-16']
 
 """Gadgets for various tasks 
 """
@@ -679,9 +679,181 @@ def feature_progression_merge(
     g.xaxis.set_ticks_position("top")
     g.xaxis.set_label_position("top")
 
-    plt.savefig("../output/Feature_Importance_Final.pdf", dpi=150)
+#    plt.savefig("../output/Feature_Importance_Final.pdf", dpi=150)
 
     return feature_df_merged
+
+# Extract the directionality of features using given feature_dictionary and estimator with split dataset
+def feature_directionality_extraction(
+    df_train_eval,
+    df_holdout,
+    feature_dict,  # Time points and their corresponding features
+    target_name="Asthma_Diagnosis_5yCLA",
+    estimator=LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced"),
+):
+    # Dictionary to store coefficient results
+    feature_direction_dict = {}
+
+    # Plot feature importance at each time points in feature dict
+    for i in feature_dict.keys():
+        _, fitted_model = model_result_holdout(
+            df_train_eval, df_holdout, feature_dict[i], target_name, estimator=estimator
+        )
+        # feature_direction_dict[i] = fitted_model.coef_.reshape(1, -1)[0]
+        # Plot result
+        imp_features = pd.DataFrame(
+            data=fitted_model.coef_.reshape(1, -1)[0],
+            index=feature_dict[i],
+            columns=[i],
+        )
+        imp_features.sort_values(i, ascending=False, inplace=True)
+        feature_direction_dict[i] = imp_features
+
+        # Visualizations for individual time point
+        plt.figure(figsize=(12, 8), dpi=200)
+        sns.barplot(
+            data=imp_features, y=imp_features.index, x=imp_features[i],
+        )
+
+    lr_directionality_progression = list(feature_direction_dict.values())[
+        0
+    ].reset_index()
+    for i in range(len(feature_direction_dict.keys()) - 1):
+        lr_directionality_progression = pd.merge(
+            lr_directionality_progression,
+            list(feature_direction_dict.values())[i + 1].reset_index(),
+            how="outer",
+            on="index",
+        )
+    lr_directionality_progression.set_index("index", inplace=True)
+    lr_directionality_progression.index.rename("Features", inplace=True)
+
+    # Features of different time points with sign only - used as extra input for feature_merged_progression
+    # Keey sign only - change all number to ones
+    feature_sign_df = lr_directionality_progression.apply(lambda x: x / abs(x))
+    feature_sign_df.reset_index(inplace=True)
+
+    feature_sign_df = (
+        feature_sign_df.melt(
+            id_vars="Features",
+            value_vars=list(feature_dict.keys()),
+            var_name="Time_Point",
+            value_name="Importance_Sign",
+        )
+        .dropna()
+        .reset_index(drop=True)
+    )
+
+    # Visualizations for the entire time span
+    plt.figure(figsize=(12, 25), dpi=150)
+    sns.heatmap(
+        lr_directionality_progression,
+        cmap="vlag",
+        center=0,
+        vmax=1,
+        vmin=-1,
+        linewidths=0.05,
+        annot=True,
+        linecolor="lightgrey",
+        cbar_kws={"shrink": 0.35},
+    ).set(title="Feature Importance using Logistic Regression with Directionality")
+
+    return feature_direction_dict, lr_directionality_progression, feature_sign_df
+
+
+# Convert a merged feature importance progession dataframe to the feature importance dataframe with directionality extracted from linear based estimator with visualization
+def feature_merged_directionality(
+    df_train_eval,
+    df_holdout,
+    ml_merged_features,
+    target_name="Asthma_Diagnosis_5yCLA",
+    estimator=LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced"),
+    threshold_for_selection=0,
+):
+    """
+    params: feature_df_merged, calculated using feature_progression_merge() function
+    return: signed feature_df_merged
+    """
+    # Extract feature_dict for feature_directionality_extraction()
+    feature_dict = {}
+    for i in ml_merged_features.columns:
+        #        feature_dict[i]=list(ml_merged_features[i].dropna().index)
+        feature_dict[i] = list(
+            ml_merged_features[i][ml_merged_features[i] > threshold_for_selection].index
+        )
+
+    # Employ previously built function for directionality extraction
+    _, _, feature_sign = feature_directionality_extraction(
+        df_train_eval=df_train_eval,
+        df_holdout=df_holdout,
+        feature_dict=feature_dict,
+        target_name=target_name,
+        estimator=estimator,
+    )
+
+    # Create feature_value dataframe for merging
+    ml_merged_features.index.rename("Features", inplace=True)
+    feature_value = (
+        ml_merged_features.reset_index()
+        .melt(
+            id_vars="Features",
+            value_vars=list(ml_merged_features.columns.values),
+            var_name="Time_Point",
+            value_name="Importance_Value",
+        )
+        .dropna()
+        .reset_index(drop=True)
+    )
+
+    # Merge extracted directionality (feature_sign) dataframe with feature_value dataframe
+    signed_fi_progression = pd.merge(
+        feature_value, feature_sign, on=["Features", "Time_Point"], how="inner"
+    )
+
+    signed_fi_progression["Signed_Overall_Importance"] = (
+        signed_fi_progression.Importance_Value * signed_fi_progression.Importance_Sign
+    )
+
+    merged_fi_directionality = (
+        signed_fi_progression.pivot(
+            index="Features", columns="Time_Point", values="Signed_Overall_Importance"
+        )
+        .sort_values(by=list(ml_merged_features.columns.values), ascending=[0, 0, 0, 0])
+        .reindex(list(ml_merged_features.columns.values), axis=1)
+    )
+
+    merged_feature_directionality = merged_fi_directionality.copy()
+    # For Visualization
+
+    merged_fi_directionality.columns = [
+        x.title().replace("_", " ") for x in merged_fi_directionality.columns
+    ]
+    merged_fi_directionality.index = [
+        x.replace("_", " ") for x in merged_fi_directionality.index
+    ]
+
+    plt.figure(figsize=(12, 26), dpi=150)
+    k = sns.heatmap(
+        merged_fi_directionality[:],
+        #    cmap="vlag",
+        cmap="RdBu",
+        center=0,
+        vmax=1,
+        vmin=-1,
+        linewidths=0.05,
+        annot=True,
+        linecolor="lightgrey",
+        cbar_kws={"shrink": 0.35},
+    )
+
+    k.xaxis.set_ticks_position("top")
+    k.xaxis.set_label_position("top")
+    k.set_ylabel("", fontsize=20)
+    for _, spine in k.spines.items():
+        spine.set_visible(True)
+    k.set(title="Feature Importance Progression with Directionality")
+
+    return merged_feature_directionality
 
 # Create dataframe for visualize category (instead of feature) importance at multiple timepoints
 def feature_category_dataframe(
@@ -2095,7 +2267,6 @@ def ml_feature_selection(
 
 
 # Final Model Performance - Holdout Result View
-# Final Model Performance - Holdout Result View
 def model_result_holdout(
     df_train_eval,
     df_holdout,
@@ -2278,21 +2449,17 @@ def model_metrics_bootstrapstats(
             display=False,
         )
         roc_list.append(res_holdout[0]["roc_auc_score"])
-        average_precision_list(res_holdout[0]["average_precision_score"])
+        average_precision_list.append(res_holdout[0]["average_precision_score"])
 
     res_metrics = {}
 
-    # confidence intervals
+    # confidence intervals of roc
     p_roc = ((1.0 - confidence_alpha) / 2.0) * 100
     lower_roc = max(0.0, np.percentile(roc_list, p_roc))
     p_roc = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
     upper_roc = min(1.0, np.percentile(roc_list, p_roc))
 
-    print(
-        "%.1f confidence interval %.1f%% and %.1f%%"
-        % (confidence_alpha * 100, lower_roc * 100, upper_roc * 100)
-    )
-
+    # confidence intervals of ap
     p_ap = ((1.0 - confidence_alpha) / 2.0) * 100
     lower_ap = max(0.0, np.percentile(average_precision_list, p_ap))
     p_ap = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
