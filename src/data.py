@@ -175,7 +175,7 @@ def feature_selection(data_path='../data/'):
 
     # Birth Profiling
     features_of_birth = data_path + 'Birth Q107CBIRTHCD no withdraw.xlsx'
-    variables_of_birth = {'SubjectNumber': 'Subject_Number', 'CBIRTHCDQ2': 'Sex', 'CBIRTHCDQ3': 'No_of_Pregnancy',
+    variables_of_birth = {'SubjectNumber': 'Subject_Number', 'CBIRTHCDQ3': 'No_of_Pregnancy',
                           'CBIRTHCDQ9': 'Anesthetic_delivery', 'CBIRTHCDQ10': 'Analgesics_usage_delivery',
                           'CBIRTHCDQ12': 'Mode_of_delivery', 'CBIRTHCDQ24': 'Apgar_Score_1min',
                           'CBIRTHCDQ25': 'Apgar_Score_5min',
@@ -231,7 +231,7 @@ def feature_selection(data_path='../data/'):
                                 'ri_type': 'Respiratory_Infections', 'ri_sev': 'Severity_of_Respiratoryinfections'}
 
     features_of_anthrop = data_path + 'Anthropometrics and sex.xlsx'
-    variables_of_anthrop = {'subjectnumber': 'Subject_Number', 'Sex': 'Gender', 'gest_days': 'Gest_Days',
+    variables_of_anthrop = {'subjectnumber': 'Subject_Number', 'Sex': 'Sex', 'gest_days': 'Gest_Days',
                             'weight_0': 'Weight_0m',
                             'weight_3': 'Weight_3m', 'weight_12': 'Weight_12m', 'weight_36': 'Weight_36m',
                             'weight_60': 'Weight_60m',
@@ -392,7 +392,7 @@ def data_mapping(merged_df=None):
     df_mapping = merged_df.copy()  # Must use copy to reserve the original dataframe in the tuple (same to list)
 
     # For Birth Profile (Drop Sex but Keep Gender)
-    df_mapping.drop(columns=['Sex'], axis=1, inplace=True)  # Drop due to repetition
+    # df_mapping.drop(columns=['Sex'], axis=1, inplace=True)  # Drop due to repetition
     df_mapping[['No_of_Pregnancy', 'Mode_of_delivery', 'Stay_Duration_Hospital']] = df_mapping[
         ['No_of_Pregnancy', 'Mode_of_delivery', 'Stay_Duration_Hospital']].replace(
         {999: np.nan, 88: np.nan, 99: np.nan})

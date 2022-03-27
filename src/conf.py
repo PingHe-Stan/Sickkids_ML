@@ -142,13 +142,13 @@ SUB_NUM_WITHMISSING = [
     "Weight_12m",
     "BF_Implied_Duration",
     "PSS_36week",
-    "CSED_36week",
+    "CESD_36week",
     "PSS_18week",
-    "CSED_18week",
+    "CESD_18week",
     "PSS_6m",
     "PSS_12m",
-    "CSED_6m",
-    "CSED_12m",
+    "CESD_6m",
+    "CESD_12m",
 ]
 SUB_NUM_LOG1P = [
     "No_of_Pregnancy",
@@ -205,8 +205,8 @@ FEA_OF_LITTLE = [
     "Weight_for_age_60m",  # Too late
     "PSS_18m",  # Too late , No of Missing Value
     "PSS_24m",  # Too late , No of Missing Value
-    "CSED_18m",  # See Above
-    "CSED_24m",  # See Above
+    "CESD_18m",  # See Above
+    "CESD_24m",  # See Above
     "BF_3m",  # Repetitive Information with BF_Status_3m
     "BF_6m",  # Repetitive Information with BF_Status_6m
     "Systolic_BP_3yCLA",

@@ -43,7 +43,7 @@ class ApgarTransformer(BaseEstimator, TransformerMixin):
 
     """
 
-    def __init__(self, engineer_type="Ordinal"):
+    def __init__(self, engineer_type="None"):
         super().__init__()
         self.engineer_type = engineer_type
 
@@ -116,9 +116,9 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
 
     def __init__(
             self,
-            bimode_delivery=True,
-            binary_pregnancy_conditions=True,
-            signal_suction=True,
+            bimode_delivery=False,
+            binary_pregnancy_conditions=False,
+            signal_suction=False,
     ):
         super().__init__()
         self.bimode_delivery = bimode_delivery
@@ -664,7 +664,7 @@ class ColumnFilter(BaseEstimator, TransformerMixin):
 # Feature Engineering maternal Stress level
 class DiscretizePSS(BaseEstimator, TransformerMixin):
     """
-    Discretize PSS or CSED score into ordinal categories to suppress the numeric linearity between scores.
+    Discretize PSS or CESD score into ordinal categories to suppress the numeric linearity between scores.
 
     Parameters:
     ----------
@@ -674,24 +674,24 @@ class DiscretizePSS(BaseEstimator, TransformerMixin):
     pss_mapping: dict, defautl {'Low_Stress':13.5,'Moderate_Stress':26.5,'High_Stress':41}
         See ref: https://das.nh.gov/wellness/docs/percieved%20stress%20scale.pdf
 
-    csed_cutoff: dict, default {'Low_Depression':19.5, 'High_Depression':60}
+    cesd_cutoff: dict, default {'Low_Depression':19.5, 'High_Depression':60}
         See ref: https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0155431#sec022
 
     Return:
     ---------
-    Transformed X with discretized or log-fied PSS or CSED score
+    Transformed X with discretized or log-fied PSS or CESD score
     """
 
     def __init__(
             self,
-            discretize="Ordinal",
+            discretize="None",
             pss_mapping={"Low_Stress": 13.5, "Moderate_Stress": 26.5, "High_Stress": 41},
-            csed_cutoff={"Low_Depression": 19.5, "High_Depression": 60},
+            cesd_cutoff={"Low_Depression": 19.5, "High_Depression": 60},
     ):
         super().__init__()
         self.discretize = discretize
         self.pss_mapping = pss_mapping
-        self.csed_cutoff = csed_cutoff
+        self.cesd_cutoff = cesd_cutoff
 
     def fit(self, X, y=None):
         return self
@@ -710,18 +710,18 @@ class DiscretizePSS(BaseEstimator, TransformerMixin):
                     labels=["Low_Stress", "Moderate_Stress", "High_Stress"],
                 )
 
-            for coln in X.columns[X.columns.str.contains("CSED_")]:
+            for coln in X.columns[X.columns.str.contains("CESD_")]:
                 X[coln] = pd.cut(
                     X[coln],
                     [
                         -1,
-                        self.csed_cutoff["Low_Depression"],
-                        self.csed_cutoff["High_Depression"],
+                        self.cesd_cutoff["Low_Depression"],
+                        self.cesd_cutoff["High_Depression"],
                     ],
                     labels=["Low_Depression", "High_Depression"],
                 )
         elif self.discretize == "Log1p":
-            for coln in X.columns[X.columns.str.contains("PSS_|CSED_")]:
+            for coln in X.columns[X.columns.str.contains("PSS_|CESD_")]:
                 X[coln] = np.log1p(X[coln])
 
         return X

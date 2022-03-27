@@ -3,7 +3,7 @@ __contact__ = 'stan.he@sickkids.ca'
 __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
             '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11',
-            "2022-02-17", '2022-03-16']
+            "2022-02-17", '2022-03-16', '2022-03-24']
 
 """Gadgets for various tasks 
 """
@@ -110,7 +110,7 @@ def load_child_with_more(
         usecols=["SubjectNumber", "PRNMH18WQ3_1a", "PRNMH18WQ3_2a"],
     )
     df_ethnicity.columns = ["Subject_Number", "Mother_Caucasian", "Father_Caucasian"]
-    df_ethnicity["Child_Ethinicity"] = (
+    df_ethnicity["Child_Ethnicity"] = (
             df_ethnicity.Mother_Caucasian + df_ethnicity.Father_Caucasian
     ).map({2: "Caucasian", 1: "HalfCaucas", 0: "NonCaucas"})
     df_ethnicity = df_ethnicity.replace({8888: np.nan})
@@ -132,7 +132,7 @@ def load_child_with_more(
         how="left",
     )
 
-    # Add on child ethinicity
+    # Add on child ethnicity
 
     df_child = pd.merge(df_child, df_ethnicity, on="Subject_Number", how="left")
 
@@ -287,6 +287,8 @@ def df_holdout_throughout(
     )
 
     return df_child_ml, rest_index, holdout_index
+
+
 # grouped_feature_generator will be applied
 # BF_Implied_Duration feature will be moved to with 36m
 def features_four_timepoint(df):
@@ -321,6 +323,125 @@ def features_four_timepoint(df):
 
     return feature_fourtime_dict
 
+def grouped_feature_generator(df):
+    """
+    Automaticly generate subset of variables to facilitate the feature selection, feature imputation, as well as time-point longitudinal ML analysis process.
+    :param df Dataframe to be operated on
+    :return: two dictionaries containing groupped features, and features at different time points
+
+    Example:
+    feature_dict, timepoint_dict, feature_grouped_overview, time_grouped_overview = grouped_feature_generator(df)
+    """
+
+    # To facilitate the selections of features as well as the multivariate imputation for grouped features to build models
+    feature_grouped_dict = {}
+
+    feature_grouped_mapping = {
+        "1_weight": "^Weight_",
+        "2_mother_condition": "^Prenatal_",
+        "3_first10min": "10min_",
+        "4_breastfeeding": "^BF_",
+        "5_home": "^Home",
+        "6_mental": "^PSS_|^CESD_",
+        "7_parental": "Mother|Father|Dad|Mom|Parental",
+        "8_smoke": "Smoke",
+        "9_wheeze": "Wheeze",
+        "10_resp": "Respiratory|RI",
+        "11_antibiotic": "Antibiotic",
+    }
+
+    for k, v in feature_grouped_mapping.items():
+        feature_grouped_dict[k] = set(df.columns[df.columns.str.contains(v)])
+
+    feature_grouped_dict["1_11"] = set()
+    for i in feature_grouped_dict.values():
+        feature_grouped_dict["1_11"].update(i)
+
+    feature_grouped_dict["12_misc"] = (
+            set(df.columns)
+            - feature_grouped_dict["1_11"]
+            - set(df.columns[df.columns.str.contains("yCLA")])
+            - {"y"}
+    )
+
+    temp_current = set()
+    for i in feature_grouped_dict.values():
+        temp_current.update(i)
+
+    feature_grouped_dict["13_remainder"] = set(df.columns) - temp_current
+
+    # To facilitate the incorporation of features at different time points to build models
+    feature_timepoint_dict = {}
+
+    feature_timepoint_mapping = {
+        "3m": "3m",
+        "6m": "_6m",
+        "12m": "_12m|_1y",
+        "18m": "18m|BF_implied",
+        "24m": "24m|2y",
+        "36m": "36m|3y",
+        "48m": "48m|4y",
+        "60m": "60m|5y|Traj_Type",
+        "1_9m_2hy": "_1m$|9m|_2hy|_30m"
+    }
+
+    for k, v in feature_timepoint_mapping.items():
+        feature_timepoint_dict[k] = set(df.columns[df.columns.str.contains(v)])
+
+    feature_timepoint_dict["after_birth"] = set()
+
+    for i in feature_timepoint_dict.values():
+        feature_timepoint_dict["after_birth"].update(i)
+
+    feature_timepoint_dict["at_birth"] = (
+            set(df.columns) - feature_timepoint_dict["after_birth"] - {"y"}
+    )
+
+    target_repo = {
+        "Asthma_Diagnosis_3yCLA",
+        "Asthma_Diagnosis_5yCLA",
+        "Recurrent_Wheeze_1y",  # Self-report Wheeze at earliest time point
+        "Recurrent_Wheeze_3y",
+        "Recurrent_Wheeze_5y",
+        "Wheeze_Traj_Type",  # Derived by Vera Dai, Less NaN Value, 2+4 could be useful
+        "Medicine_for_Wheeze_5yCLA",  # More objective
+        "Viral_Asthma_3yCLA",  # No need to decide "possible" category
+        "Triggered_Asthma_3yCLA",
+        "Viral_Asthma_5yCLA",  # No need to decide "possible" category
+        "Triggered_Asthma_5yCLA",
+    }
+
+    print("------------------------------------------------------")
+    print(
+        "The available grouped feature can be one of: \n", feature_grouped_dict.keys()
+    )
+    print("------------------------------------------------------")
+    print(
+        "The available time-points for features can be one of: \n",
+        feature_timepoint_dict.keys(),
+    )
+    print("------------------------------------------------------")
+    print("Note: Target variable can be one of: \n", target_repo)
+    print("------------------------------------------------------")
+
+    feature_grouped_overview = pd.DataFrame(
+        [feature_grouped_dict.keys(), feature_grouped_dict.values()], index=["Type", "Features"]
+    ).T.set_index("Type").drop(index=["1_11"])
+
+    feature_grouped_overview.loc[-1] = str(target_repo)
+
+    feature_grouped_overview.rename(index={-1: "14_target"}, inplace=True)
+
+    time_variable_overview = (
+        pd.DataFrame(
+            [feature_timepoint_dict.keys(), feature_timepoint_dict.values()], index=["Time_Points", "Features"]
+        )
+            .T.set_index("Time_Points")
+            .drop(index=["1_9m_2hy"])
+    )
+
+    return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
+
 # Create four types for clinical applications. grouped_feature_generator will be applied, Based on Theo Moraes medical viewwpoint
 def features_four_types(df):
     features_all_types, _, _, _ = grouped_feature_generator(df)
@@ -329,9 +450,9 @@ def features_four_types(df):
     # Define Genetic Variables
     gen_1 = features_all_types["7_parental"] - {"Prenatal_Mother_Condition"}
     gen_2 = {
-        "Child_Ethinicity_Caucasian",
-        "Child_Ethinicity_HalfCaucas",
-        "Child_Ethinicity_NonCaucas",
+        "Child_Ethnicity_Caucasian",
+        "Child_Ethnicity_HalfCaucas",
+        "Child_Ethnicity_NonCaucas",
     }
     feature_fourtype_dict["genetic"] = gen_1 | gen_2
 
@@ -341,10 +462,10 @@ def features_four_types(df):
         i
         for i in cli_1
         if (
-            ("_4y" not in i)
-            & ("_5y" not in i)
-            & ("5yCLA" not in i)
-            & ("Traj_Type" not in i)
+                ("_4y" not in i)
+                & ("_5y" not in i)
+                & ("5yCLA" not in i)
+                & ("Traj_Type" not in i)
         )
     }
 
@@ -363,7 +484,7 @@ def features_four_types(df):
         "Child_Inhalant_1y",
         "Child_Inhalant_3y",
         "Complications_Birth",
-        "Gender_M",
+        "Sex_M",
         "Gest_Days",
         "Jaundice_Birth",
         "Stay_Duration_Hospital",
@@ -372,12 +493,12 @@ def features_four_types(df):
     cli_4 = features_all_types["1_weight"] - {"Weight_60m"}
 
     feature_fourtype_dict["clinic"] = (
-        features_all_types["3_first10min"]
-        | features_all_types["10_resp"]
-        | cli_1
-        | cli_2
-        | cli_3
-        | cli_4
+            features_all_types["3_first10min"]
+            | features_all_types["10_resp"]
+            | cli_1
+            | cli_2
+            | cli_3
+            | cli_4
     )
 
     # Define Environmental Variables
@@ -397,12 +518,12 @@ def features_four_types(df):
         "11_antibiotic",
     ]
     feature_fourtype_dict["environmental"] = (
-        features_all_types["2_mother_condition"]
-        | features_all_types["4_breastfeeding"]
-        | features_all_types["5_home"]
-        | features_all_types["8_smoke"]
-        | features_all_types["11_antibiotic"]
-        | env_1
+            features_all_types["2_mother_condition"]
+            | features_all_types["4_breastfeeding"]
+            | features_all_types["5_home"]
+            | features_all_types["8_smoke"]
+            | features_all_types["11_antibiotic"]
+            | env_1
     )
 
     # Define Other Variables
@@ -417,27 +538,415 @@ def features_four_types(df):
     feature_fourtype_dict["other"] = features_all_types["6_mental"] | oth_1
 
     feature_fourtype_dict["all_variables_till3y"] = (
-        feature_fourtype_dict["other"]
-        | feature_fourtype_dict["environmental"]
-        | feature_fourtype_dict["clinic"]
-        | feature_fourtype_dict["genetic"]
+            feature_fourtype_dict["other"]
+            | feature_fourtype_dict["environmental"]
+            | feature_fourtype_dict["clinic"]
+            | feature_fourtype_dict["genetic"]
     )
 
     print(f"The available keys are {feature_fourtype_dict.keys()}")
 
     return feature_fourtype_dict
 
+# Create four types for clinical applications. grouped_feature_generator will be applied, Based on Theo Moraes medical viewwpoint
+def features_three_types(df):
+    features_all_types, _, _, _ = grouped_feature_generator(df)
+    feature_threetype_dict = {}
+
+    # Define Genetic Variables
+    gen_1 = features_all_types["7_parental"] - {"Prenatal_Mother_Condition"}
+    gen_2 = {
+        "Child_Ethnicity_Caucasian",
+        "Child_Ethnicity_HalfCaucas",
+        "Child_Ethnicity_NonCaucas",
+        "Sex_M",  # Advised from integration meeting Mar 10,2022
+    }
+    feature_threetype_dict["genetic"] = gen_1 | gen_2
+
+    # Define Clinic Variables
+    cli_1 = features_all_types["9_wheeze"] - {"Wheeze_Father", "Wheeze_Mother"}
+    cli_1 = {
+        i
+        for i in cli_1
+        if (
+                ("_4y" not in i)
+                & ("_5y" not in i)
+                & ("5yCLA" not in i)
+                & ("Traj_Type" not in i)
+        )
+    }
+
+    cli_2 = {i for i in features_all_types["13_remainder"] if "5yCLA" not in i} - {
+        "Asthma_Diagnosis_3yCLA",
+        "Triggered_Asthma_3yCLA",
+        "Viral_Asthma_3yCLA",
+    }
+    cli_3 = {
+        "Apgar_Score_1min",
+        "Apgar_Score_5min",
+        "Child_Atopy_1y",
+        "Child_Atopy_3y",
+        "Child_Food_1y",
+        "Child_Food_3y",
+        "Child_Inhalant_1y",
+        "Child_Inhalant_3y",
+        "Mode_of_delivery_Vaginal",  # Advised from integration meeting Mar 10,2022
+        "Complications_Birth",
+        "Gest_Days",
+        "Jaundice_Birth",
+        "Stay_Duration_Hospital",
+    }
+
+    cli_4 = features_all_types["1_weight"] - {"Weight_60m"}
+
+    feature_threetype_dict["clinic"] = (
+            features_all_types["3_first10min"]
+            | features_all_types["10_resp"]
+            | cli_1
+            | cli_2
+            | cli_3
+            | cli_4
+    )
+
+    # Define Environmental Variables
+
+    env_1 = {
+        "Prenatal_Mother_Condition",
+        "Analgesics_usage_delivery",
+        "Anesthetic_delivery",
+    }
+
+    env_2 = {  # Advised from integration meeting Mar 10,2022
+        "Study_Center_Edmonton",
+        "Study_Center_Toronto",
+        "Study_Center_Vancouver",
+        "Study_Center_Winnipeg",
+        "No_of_Pregnancy",
+    }
+
+    environmental = [
+        "2_mother_condition",
+        "4_breastfeeding",
+        "5_home",
+        "8_smoke",
+        "11_antibiotic",
+    ]
+    feature_threetype_dict["environmental"] = (
+            features_all_types["2_mother_condition"]
+            | features_all_types["4_breastfeeding"]
+            | features_all_types["5_home"]
+            | features_all_types["8_smoke"]
+            | features_all_types["11_antibiotic"]
+            | features_all_types["6_mental"]  # Advised from integration meeting Mar 10,2022
+            | env_1
+            | env_2  # Advised from integration meeting Mar 10,2022
+    )
+
+    # Define Collective Variables
+
+    feature_threetype_dict["all_variables_till3y"] = (
+            feature_threetype_dict["environmental"]
+            | feature_threetype_dict["clinic"]
+            | feature_threetype_dict["genetic"]
+    )
+
+    print(f"The available keys are {feature_threetype_dict.keys()}")
+
+    return feature_threetype_dict
+
+
+def feature_grouping_generator(df, group_type="four_timepoints"):
+    """
+    group_type: str, default: "four_timepoints"
+        other available options include "four_categories", "three_categories", "detailed_timepoints", "detailed_categories"
+    -----------------------------------------------
+    return: a dictionary and a dataframe for display
+    """
+
+    # Detailed Timepoints Dictionary
+
+    detailed_timepoints_dict = {}
+
+    detailed_timepoints_mapping = {  ### PAY SPECIAL ATTENTION TO SPACES WITHIN QUOTATION MARK!
+        "3m": "_3m|_1m$",  # 3 months + 1 month
+        "6m": "_6m",  # 6 months
+        "12m": "_9m|_12m|_1y",  # 1 Year + 9 months
+        "18m": "_18m",  # 1.5 Years
+        "24m": "_24m|_2y|BF_Implied",  # 2 Years
+        "30m": "_2hy|_30m",  # 2.5 Years
+        "36m": "_36m|_3y",  # 3 Years
+        "48m": "_48m|_4y",  # 4 Years
+        "60m": "_60m|_5y|Traj_Type",  # 5 Years & Traj_Type
+    }
+
+    # Create keys and values for detailed_timepoints_dict
+    for k, v in detailed_timepoints_mapping.items():
+        detailed_timepoints_dict[k] = set(df.columns[df.columns.str.contains(v)])
+
+    # Put all of them together
+    after_birth_set = set()
+    for i in detailed_timepoints_dict.values():
+        after_birth_set.update(i)
+
+    # The at_birth features will be the remaining features
+    detailed_timepoints_dict["at_birth"] = set(df.columns) - after_birth_set
+
+    # Generate the dataframe for visualization
+    detailed_timepoints_overview = pd.DataFrame(
+        [detailed_timepoints_dict.keys(), detailed_timepoints_dict.values()],
+        index=["Time_Point", "Features"],
+    ).T.set_index("Time_Point")
+
+    # Detailed Categories Dictionary
+    detailed_categories_dict = {}
+    detailed_categories_mapping = {
+        "1_weight": "^Weight_",
+        "2_mother_condition": "^Prenatal_",
+        "3_first10min": "10min_",
+        "4_breastfeeding": "^BF_",
+        "5_home": "^Home",
+        "6_mental": "^PSS_|^CESD_",
+        "7_parental": "Mother|Father|Dad|Mom|Parental",
+        "8_smoke": "Smoke",
+        "9_wheeze": "Wheeze(?!.*CLA)|^Wheeze(?!.*Moth)|^Wheeze(?!.*Fath)",  # Contain wheeze but exclude *CLA, *Father, *Mother
+        "10_resp": "Respiratory|^RI",
+        "11_antibiotic": "Antibiotic",
+        "12_childspt": "Child_Inhalant|Child_Atopy|Child_Food",
+        "13_childinfo": "Child_Ethnicity|Sex",
+        "15_CLA": "yCLA",
+    }
+
+    # Create keys and values for detailed_timepoints_dict
+    for k, v in detailed_categories_mapping.items():
+        detailed_categories_dict[k] = set(df.columns[df.columns.str.contains(v)])
+
+    # Put all of them together
+    current_set = set()
+    for i in detailed_categories_dict.values():
+        current_set.update(i)
+
+    # The at_birth features will be the remaining features
+    detailed_categories_dict["14_birthclinic"] = set(df.columns) - current_set
+
+    # Generate the dataframe for visualization
+    detailed_categories_overview = pd.DataFrame(
+        [detailed_categories_dict.keys(), detailed_categories_dict.values()],
+        index=["Type", "Features"],
+    ).T.set_index("Type")
+
+    #################################################################
+
+    if group_type == "detailed_timepoints":
+
+        print(
+            "The available keywords for grouped features are:",
+            detailed_timepoints_dict.keys(),
+        )
+
+        return detailed_timepoints_dict, detailed_timepoints_overview
+
+    elif group_type == "detailed_categories":
+
+        print(
+            "The available keywords for grouped features are:",
+            detailed_categories_dict.keys(),
+        )
+
+        return detailed_categories_dict, detailed_categories_overview
+
+    elif group_type == "four_timepoints":
+
+        four_timepoints_dict = {}
+
+        four_timepoints_dict["at_birth_feature"] = detailed_timepoints_dict["at_birth"]
+        four_timepoints_dict["with_6m"] = (
+            detailed_timepoints_dict["3m"] | detailed_timepoints_dict["6m"]
+        )
+        four_timepoints_dict["with_12m"] = detailed_timepoints_dict["12m"]
+        four_timepoints_dict["with_36m_all"] = (
+            detailed_timepoints_dict["18m"]
+            | detailed_timepoints_dict["24m"]
+            | detailed_timepoints_dict["30m"]
+            | detailed_timepoints_dict["36m"]
+        )
+
+        four_timepoints_dict["with_36m_exclude_diagnosis"] = four_timepoints_dict[
+            "with_36m_all"
+        ] - set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+
+        four_timepoints_dict["all_four_exclude_3yDiagnosis"] = (
+            four_timepoints_dict["at_birth_feature"]
+            | four_timepoints_dict["with_6m"]
+            | four_timepoints_dict["with_12m"]
+            | four_timepoints_dict["with_36m_exclude_diagnosis"]
+        )
+        four_timepoints_dict["all_four_include_3yDiagnosis"] = (
+            four_timepoints_dict["at_birth_feature"]
+            | four_timepoints_dict["with_6m"]
+            | four_timepoints_dict["with_12m"]
+            | four_timepoints_dict["with_36m_all"]
+        )
+
+        # Generate the dataframe for visualization
+        four_timepoints_overview = pd.DataFrame(
+            [four_timepoints_dict.keys(), four_timepoints_dict.values()],
+            index=["Time_Point", "Features"],
+        ).T.set_index("Time_Point")
+
+        print(
+            "The available keywords for grouped features are:",
+            four_timepoints_dict.keys(),
+        )
+
+        return four_timepoints_dict, four_timepoints_overview
+
+    elif group_type == "four_categories":
+
+        four_categories_dict = {}
+
+        four_categories_dict["genetic"] = (
+            detailed_categories_dict["7_parental"]
+            | set(df.columns[df.columns.str.contains("Child_Ethnicity")])
+        ) - {"Prenatal_Mother_Condition"}
+
+        four_categories_dict["clinic"] = (
+            detailed_categories_dict["9_wheeze"]
+            | detailed_categories_dict["1_weight"]
+            | detailed_categories_dict["3_first10min"]
+            | detailed_categories_dict["10_resp"]
+            | detailed_categories_dict["12_childspt"]
+            | detailed_categories_dict["15_CLA"]
+            | set(
+                df.columns[
+                    df.columns.str.contains(
+                        "Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Sex|Jaundice_Birth"
+                    )
+                ]
+            )
+        ) - (
+            {"Wheeze_Father", "Wheeze_Mother"}
+            | detailed_timepoints_dict["48m"]
+            | detailed_timepoints_dict["60m"]
+            | set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+        )
+
+        four_categories_dict["environmental"] = (
+            detailed_categories_dict["2_mother_condition"]
+            | detailed_categories_dict["4_breastfeeding"]
+            | detailed_categories_dict["5_home"]
+            | detailed_categories_dict["8_smoke"]
+            | detailed_categories_dict["11_antibiotic"]
+            | set(
+                df.columns[
+                    df.columns.str.contains(
+                        "Mode_of_delivery|Prenatal_Mother_Condition|Analgesics_usage_delivery|Anesthetic_delivery"
+                    )
+                ]
+            )
+        )
+
+        four_categories_dict["other"] = detailed_categories_dict["6_mental"] | set(
+            df.columns[df.columns.str.contains("Study_Center|No_of_Pregnancy")]
+        )
+
+        # Generate the dataframe for visualization
+        four_categories_overview = pd.DataFrame(
+            [four_categories_dict.keys(), four_categories_dict.values()],
+            index=["Category", "Features"],
+        ).T.set_index("Category")
+
+        print(
+            "The available keywords for grouped features are:",
+            four_categories_dict.keys(),
+        )
+
+        return four_categories_dict, four_categories_overview
+
+    elif group_type == "three_categories":
+
+        three_categories_dict = {}
+
+        three_categories_dict["genetic"] = (
+            detailed_categories_dict["7_parental"]
+            | set(df.columns[df.columns.str.contains("Child_Ethnicity|Sex")])
+        ) - {
+            "Prenatal_Mother_Condition"
+        }  # Sex/Gender from clinic to genetic Advised from integration meeting Mar 10,2022
+
+        three_categories_dict["clinic"] = (
+            detailed_categories_dict["9_wheeze"]
+            | detailed_categories_dict["1_weight"]
+            | detailed_categories_dict["3_first10min"]
+            | detailed_categories_dict["10_resp"]
+            | detailed_categories_dict["12_childspt"]
+            | detailed_categories_dict["15_CLA"]
+            | set(
+                df.columns[
+                    df.columns.str.contains(
+                        "Mode_of_delivery|Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Sex|Jaundice_Birth"
+                    )
+                ]
+            )
+        ) - (
+            {"Wheeze_Father", "Wheeze_Mother"}
+            | detailed_timepoints_dict["48m"]
+            | detailed_timepoints_dict["60m"]
+            | set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+        )  # Mode_of_delivery from env to clinic Advised from integration meeting Mar 10,2022
+
+        three_categories_dict["environmental"] = (
+            detailed_categories_dict["2_mother_condition"]
+            | detailed_categories_dict["4_breastfeeding"]
+            | detailed_categories_dict["5_home"]
+            | detailed_categories_dict["8_smoke"]
+            | detailed_categories_dict["11_antibiotic"]
+            | detailed_categories_dict[
+                "6_mental"
+            ]  # Advised from integration meeting Mar 10,2022
+            | set(
+                df.columns[
+                    df.columns.str.contains(
+                        "Prenatal_Mother_Condition|Analgesics_usage_delivery|Anesthetic_delivery|Study_Center|No_of_Pregnancy"
+                    )
+                ]
+            )
+        )  # Study_Center & No_of_Pregnancy from other to env Advised from integration meeting Mar 10,2022
+
+        # Generate the dataframe for visualization
+        three_categories_overview = pd.DataFrame(
+            [three_categories_dict.keys(), three_categories_dict.values()],
+            index=["Category", "Features"],
+        ).T.set_index("Category")
+
+        print(
+            "The available keywords for grouped features are:",
+            three_categories_dict.keys(),
+        )
+
+        return three_categories_dict, three_categories_overview
+
+    else:
+        print("Incorrect grouping type, please choose one from:")
+        print(
+            "four_timepoints |",
+            "four_categories |",
+            "three_categories |",
+            "detailed_timepoints |",
+            "detailed_categories",
+        )
+
+
 # Calculate and visualize the feature importance change and model predictability over 4 different time points
 def ml_res_visualization(
-    df_train_eval,
-    df_holdout,
-    four_time_dict,
-    scalar=MinMaxScaler(),
-    cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
-    priori_k=25,
-    precision_inspection_range=0.005,
-    fixed_features=None,
-    scoring="average_precision",
+        df_train_eval,
+        df_holdout,
+        four_time_dict,
+        scalar=MinMaxScaler(),
+        cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
+        priori_k=25,
+        precision_inspection_range=0.005,
+        fixed_features=None,
+        scoring="average_precision",
 ):
     # Define the model parameter here for auto feature selection
 
@@ -461,7 +970,7 @@ def ml_res_visualization(
         scale_pos_weight=15,
         subsample=0.8,
         random_state=2021,
-#        verbosity=False  # This parameter also affects how estimator runs.
+        #        verbosity=False  # This parameter also affects how estimator runs.
     )
     # SVC
     svc = SVC(
@@ -583,15 +1092,16 @@ def ml_res_visualization(
 
     return ml_res_dict, feature_importance_dict, model_perform_df
 
+
 def feature_progression_merge(
-    ml_res_final,
-    ml_list=["lr", "rf", "xgb", "svc", "dt"],
-    coef_thresh=0.15,
-    featimp_thresh=0.015,
-    permutation_thresh=0.001,
-    how="sum",
-    normalize=True,
-    merged_thresh=0,
+        ml_res_final,
+        ml_list=["lr", "rf", "xgb", "svc", "dt"],
+        coef_thresh=0.15,
+        featimp_thresh=0.015,
+        permutation_thresh=0.001,
+        how="sum",
+        normalize=True,
+        merged_thresh=0,
 ):
     """
     params: how, string
@@ -650,7 +1160,7 @@ def feature_progression_merge(
             )
 
     feature_df_merged = feature_df_merged.applymap(lambda x: filter_features(x, threshold=merged_thresh)).dropna(
-            how="all")
+        how="all")
 
     # For Visualization Only
     ml_final_features = feature_df_merged.copy()
@@ -679,17 +1189,20 @@ def feature_progression_merge(
     g.xaxis.set_ticks_position("top")
     g.xaxis.set_label_position("top")
 
-#    plt.savefig("../output/Feature_Importance_Final.pdf", dpi=150)
+    #    plt.savefig("../output/Feature_Importance_Final.pdf", dpi=150)
 
     return feature_df_merged
 
+
 # Extract the directionality of features using given feature_dictionary and estimator with split dataset
 def feature_directionality_extraction(
-    df_train_eval,
-    df_holdout,
-    feature_dict,  # Time points and their corresponding features
-    target_name="Asthma_Diagnosis_5yCLA",
-    estimator=LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced"),
+        df_train_eval,
+        df_holdout,
+        feature_dict,  # Time points and their corresponding features
+        target_name="Asthma_Diagnosis_5yCLA",
+        estimator=LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced"),
+        directionality_coef_cutoff=0.08
+        # Only when the coefficient is greater than the cutoff value will the directionality be extracted, otherwise, default directionaliy will be applied (positive in our study)
 ):
     # Dictionary to store coefficient results
     feature_direction_dict = {}
@@ -728,6 +1241,10 @@ def feature_directionality_extraction(
     lr_directionality_progression.set_index("index", inplace=True)
     lr_directionality_progression.index.rename("Features", inplace=True)
 
+    # When coef >= cutoff, directionality remains, when coef < cutoff, change to positive value
+    lr_directionality_progression = lr_directionality_progression.applymap(
+        lambda x: abs(x) if abs(x) < directionality_coef_cutoff else x)
+
     # Features of different time points with sign only - used as extra input for feature_merged_progression
     # Keey sign only - change all number to ones
     feature_sign_df = lr_directionality_progression.apply(lambda x: x / abs(x))
@@ -740,8 +1257,8 @@ def feature_directionality_extraction(
             var_name="Time_Point",
             value_name="Importance_Sign",
         )
-        .dropna()
-        .reset_index(drop=True)
+            .dropna()
+            .reset_index(drop=True)
     )
 
     # Visualizations for the entire time span
@@ -763,12 +1280,13 @@ def feature_directionality_extraction(
 
 # Convert a merged feature importance progession dataframe to the feature importance dataframe with directionality extracted from linear based estimator with visualization
 def feature_merged_directionality(
-    df_train_eval,
-    df_holdout,
-    ml_merged_features,
-    target_name="Asthma_Diagnosis_5yCLA",
-    estimator=LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced"),
-    threshold_for_selection=0,
+        df_train_eval,
+        df_holdout,
+        ml_merged_features,
+        target_name="Asthma_Diagnosis_5yCLA",
+        estimator=LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced"),
+        threshold_for_selection=0,
+        directionality_coef_cutoff=0.08
 ):
     """
     params: feature_df_merged, calculated using feature_progression_merge() function
@@ -789,20 +1307,21 @@ def feature_merged_directionality(
         feature_dict=feature_dict,
         target_name=target_name,
         estimator=estimator,
+        directionality_coef_cutoff=directionality_coef_cutoff
     )
 
     # Create feature_value dataframe for merging
     ml_merged_features.index.rename("Features", inplace=True)
     feature_value = (
         ml_merged_features.reset_index()
-        .melt(
+            .melt(
             id_vars="Features",
             value_vars=list(ml_merged_features.columns.values),
             var_name="Time_Point",
             value_name="Importance_Value",
         )
-        .dropna()
-        .reset_index(drop=True)
+            .dropna()
+            .reset_index(drop=True)
     )
 
     # Merge extracted directionality (feature_sign) dataframe with feature_value dataframe
@@ -811,15 +1330,15 @@ def feature_merged_directionality(
     )
 
     signed_fi_progression["Signed_Overall_Importance"] = (
-        signed_fi_progression.Importance_Value * signed_fi_progression.Importance_Sign
+            signed_fi_progression.Importance_Value * signed_fi_progression.Importance_Sign
     )
 
     merged_fi_directionality = (
         signed_fi_progression.pivot(
             index="Features", columns="Time_Point", values="Signed_Overall_Importance"
         )
-        .sort_values(by=list(ml_merged_features.columns.values), ascending=[0, 0, 0, 0])
-        .reindex(list(ml_merged_features.columns.values), axis=1)
+            .sort_values(by=list(ml_merged_features.columns.values), ascending=[0, 0, 0, 0])
+            .reindex(list(ml_merged_features.columns.values), axis=1)
     )
 
     merged_feature_directionality = merged_fi_directionality.copy()
@@ -855,24 +1374,33 @@ def feature_merged_directionality(
 
     return merged_feature_directionality
 
+
 # Create dataframe for visualize category (instead of feature) importance at multiple timepoints
 def feature_category_dataframe(
     ml_res_final,
-    df,
-    coef_thresh=0.15,
-    featimp_thresh=0.015,
-    permutation_thresh=0.001,
+    df,  # Transformed Dataframe for extracting categories
+    coef_thresh=0.1,
+    featimp_thresh=0.05,
+    permutation_thresh=0.01,
     how="sum",
     normalize=True,
     merged_thresh=0.0,
+    no_of_categories=3,
 ):
     """
     :param ml_res_final: see feature_progression_merge() for reference
-    :param df: see "features_four_timepoint()" for reference
+    :param df: see "features_four_timepoint()/features_three_timepoint()" for reference
     :param coef_thresh: see feature_progression_merge() for reference
     :return: a dataframe with feature importance in categories
     """
-    four_type_dict = features_four_types(df)
+    if no_of_categories == 3:
+        four_type_dict,_ = feature_grouping_generator(df,group_type='three_categories')
+    elif no_of_categories == 4:
+        four_type_dict,_ = feature_grouping_generator(df,group_type='four_categories')
+    else:
+        print("Invalid number. Four categories will be used.")
+        four_type_dict,_ = feature_grouping_generator(df,group_type='four_categories')
+
     ml_final_features = feature_progression_merge(
         ml_res_final,
         ml_list=["lr", "rf", "xgb", "svc", "dt"],
@@ -937,25 +1465,20 @@ def feature_category_dataframe(
         ignore_index=True,
     )
 
-    print(
-        "Feature_Importance_All_Timepoints.xlsx will be created for final visualization"
-    )
-    ml_category_features_all.to_excel("Feature_Importance_All_Timepoints.xlsx")
-
     return ml_category_features_all
 
 
 # Calculate and visualize the ensemble model performance at different time points with input of merged feature dataframe
 def ml_ensemble_res(
-    df_train_eval,
-    df_holdout,
-    ml_merged_features,
-    scalar=MinMaxScaler(),
-    threshold_for_selection=0.1,
-    ci_bootstrap=False,
-    bootstrap_replace=False,
-    bootstrap_iterations=30,
-    subset_percentage=0.95,
+        df_train_eval,
+        df_holdout,
+        ml_merged_features,
+        scalar=MinMaxScaler(),
+        threshold_for_selection=0.1,
+        ci_bootstrap=False,
+        bootstrap_replace=False,
+        bootstrap_iterations=30,
+        subset_percentage=0.95,
 ):
     """
     Use the selected feature at different time points from merged feature table to create multiple ensemble models.
@@ -1220,14 +1743,14 @@ def ml_ensemble_res(
 
 # Calculate and visualize the ensemble model performance at different time points with input of ml_res_final
 def ml_individual_res(
-    df_train_eval,
-    df_holdout,
-    ml_res_final,  # Contains the auto-selected features for different models at different timepoints
-    scalar=MinMaxScaler(),
-    ci_bootstrap=True,
-    bootstrap_replace=True,
-    bootstrap_iterations=30,
-    subset_percentage=1,
+        df_train_eval,
+        df_holdout,
+        ml_res_final,  # Contains the auto-selected features for different models at different timepoints
+        scalar=MinMaxScaler(),
+        ci_bootstrap=True,
+        bootstrap_replace=True,
+        bootstrap_iterations=30,
+        subset_percentage=1,
 ):
     """
     Use the selected feature at different time points from merged feature table to create multiple ensemble models.
@@ -1401,17 +1924,16 @@ def ml_individual_res(
 
 # Visualize the individual model performance & feature importance table at different time points
 def ml_individual_performance(df_train_eval,
-        df_holdout,
-        ml_merged_features,
-        threshold_for_selection=0.1,
-        target_name="Asthma_Diagnosis_5yCLA",
-        scalar=MinMaxScaler(),
-        scoring_func=average_precision_score,
-        importance_scoring="average_precision"):
-
+                              df_holdout,
+                              ml_merged_features,
+                              threshold_for_selection=0.1,
+                              target_name="Asthma_Diagnosis_5yCLA",
+                              scalar=MinMaxScaler(),
+                              scoring_func=average_precision_score,
+                              importance_scoring="average_precision"):
     # Features collection extracted using merged feature table at different time points
     feature_dict = {}
-    for i in ml_merged_features.columns: # Columns are time points
+    for i in ml_merged_features.columns:  # Columns are time points
         feature_dict[i] = list(ml_merged_features[i][ml_merged_features[i] > threshold_for_selection].index)
 
     timepoint_res_dict = {}
@@ -1438,6 +1960,7 @@ def ml_individual_performance(df_train_eval,
         timepoint_res_dict[timepoint][2].style.background_gradient(cmap="Greens")
 
     return timepoint_res_dict
+
 
 # Auto-tuning for multiple models with manually selected features, print out best params and display confusion matrix results
 def ml_tuned_run(df_train_eval,
@@ -1474,7 +1997,7 @@ def ml_tuned_run(df_train_eval,
         scale_pos_weight=15,
         subsample=0.8,
         random_state=2021,
-#        verbosity=False,
+        #        verbosity=False,
     )
     # SVC
     clf_svc = SVC(
@@ -1494,32 +2017,32 @@ def ml_tuned_run(df_train_eval,
 
     # Define param grid for hyperparmeter tuning
     param_grid_lr = {
-        "solver": ["lbfgs", "liblinear", "saga"], #default=’lbfgs’
-        "C": [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1], #  default: 1
+        "solver": ["lbfgs", "liblinear", "saga"],  # default=’lbfgs’
+        "C": [0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1],  # default: 1
     }
 
     param_grid_dt = {
-        "criterion": ["gini", "entropy"], #default=”gini”
-        "max_depth": [3, 4, 5, 6, 7, None], #default=None
-        "min_samples_split": [2, 4],#default=2
-        "max_features": ["sqrt", 0.8, None], #default=None
+        "criterion": ["gini", "entropy"],  # default=”gini”
+        "max_depth": [3, 4, 5, 6, 7, None],  # default=None
+        "min_samples_split": [2, 4],  # default=2
+        "max_features": ["sqrt", 0.8, None],  # default=None
     }
 
     param_grid_svc = {
-        "kernel": ["linear", "poly", "rbf", "sigmoid"], #default=’rbf’
-        "C": [0.02, 0.05, 0.1, 0.2, 0.5, 1], #default=1
+        "kernel": ["linear", "poly", "rbf", "sigmoid"],  # default=’rbf’
+        "C": [0.02, 0.05, 0.1, 0.2, 0.5, 1],  # default=1
     }
 
     param_grid_rf = {
-        "max_depth": [3, 4, 5, 6], #default=None
-        "max_features": [4, 5, 6, 7, 8], #default=None
+        "max_depth": [3, 4, 5, 6],  # default=None
+        "max_features": [4, 5, 6, 7, 8],  # default=None
     }
 
     param_grid_xgb = {
-        "learning_rate": [1e-2, 5e-2, 1e-1, 3e-1], #default=0.3
-        "max_depth": [3, 4, 5, 6], #default=6
-        "colsample_bytree": [0.5, 0.75, 1],#default=1
-        "scale_pos_weight": [7, 10, 15], # equivalent to class_weight, default = 1
+        "learning_rate": [1e-2, 5e-2, 1e-1, 3e-1],  # default=0.3
+        "max_depth": [3, 4, 5, 6],  # default=6
+        "colsample_bytree": [0.5, 0.75, 1],  # default=1
+        "scale_pos_weight": [7, 10, 15],  # equivalent to class_weight, default = 1
     }
 
     # Best Param dict
@@ -1550,7 +2073,7 @@ def ml_tuned_run(df_train_eval,
     gs_lr.fit(
         X_train_eval, y_train_eval
     )
-    gs_param_dict['lr']=gs_lr.best_params_
+    gs_param_dict['lr'] = gs_lr.best_params_
     print(
         f"The best parameters for Logistic Regression are: {gs_lr.best_params_} with the score of {gs_lr.best_score_}")
 
@@ -1590,7 +2113,6 @@ def ml_tuned_run(df_train_eval,
     )
     gs_param_dict['xgb'] = gs_xgb.best_params_
     print(f"The best parameters for XGBoost are: {gs_xgb.best_params_} with the score of {gs_xgb.best_score_}")
-
 
     # Quick Visualize Result with tuned hyperparameters
     # (1) Logistic Regression
@@ -1746,7 +2268,7 @@ def ml_tuned_run(df_train_eval,
         target_name,
         estimator=XGBClassifier(
             random_state=2021,
-#            verbosity=0,
+            #            verbosity=0,
             **gs_param_dict['xgb']
         ),
         scalar=MinMaxScaler(),
@@ -1837,7 +2359,7 @@ def ml_autofs_multiplepoints(
         X=df_train_eval[
             set(res["before_12m"][1].index)
             | four_time_dict["with_36m_exclude_diagnosis"]
-        ],
+            ],
         y=df_train_eval["Asthma_Diagnosis_5yCLA"],
         scalar=scalar,
         cv=cv,
@@ -1863,8 +2385,8 @@ def ml_autofs_multiplepoints(
 
     # View confusion matrix and keep model performance on holdout dataset
 
-    holdout_res = {} # Contains prediction and estimators
-    feature_res = {} # Contains feature importance for each model
+    holdout_res = {}  # Contains prediction and estimators
+    feature_res = {}  # Contains feature importance for each model
 
     for time_points in list(res.keys()):
         holdout_res[time_points] = model_result_holdout(
@@ -1927,125 +2449,38 @@ def ml_autofs_multiplepoints(
 
     return res_df, holdout_res, feature_res
 
-def grouped_feature_generator(df):
-    """
-    Automaticly generate subset of variables to facilitate the feature selection, feature imputation, as well as time-point longitudinal ML analysis process.
-    :param df Dataframe to be operated on
-    :return: two dictionaries containing groupped features, and features at different time points
 
-    Example:
-    feature_dict, timepoint_dict, feature_grouped_overview, time_grouped_overview = grouped_feature_generator(df)
-    """
 
-    # To facilitate the selections of features as well as the multivariate imputation for grouped features to build models
-    feature_grouped_dict = {}
-
-    feature_grouped_mapping = {
-        "1_weight": "^Weight_",
-        "2_mother_condition": "^Prenatal_",
-        "3_first10min": "10min_",
-        "4_breastfeeding": "^BF_",
-        "5_home": "^Home",
-        "6_mental": "^PSS_|^CESD_",
-        "7_parental": "Mother|Father|Dad|Mom|Parental",
-        "8_smoke": "Smoke",
-        "9_wheeze": "Wheeze",
-        "10_resp": "Respiratory|RI",
-        "11_antibiotic": "Antibiotic",
-    }
-
-    for k, v in feature_grouped_mapping.items():
-        feature_grouped_dict[k] = set(df.columns[df.columns.str.contains(v)])
-
-    feature_grouped_dict["1_11"] = set()
-    for i in feature_grouped_dict.values():
-        feature_grouped_dict["1_11"].update(i)
-
-    feature_grouped_dict["12_misc"] = (
-            set(df.columns)
-            - feature_grouped_dict["1_11"]
-            - set(df.columns[df.columns.str.contains("yCLA")])
-            - {"y"}
+# Change the output of ml_individual_res and ml_ensemble_res() to the dataframe() of desired format
+# - No. of Digits, Value with confidence interval, upper limit and lower limit columns
+def ci_df_formatter(df, no_digits=2, upper_lower_separation=False):
+    formatted_df = df.applymap(
+        lambda x: [round(i, no_digits) for i in x]
+        if isinstance(x, tuple)
+        else round(x, no_digits)
+    )
+    formatted_df["AP (95%CI)"] = (
+            formatted_df["Average_Precision"].apply(str)
+            + " "
+            + formatted_df["Average_Precision_CI"].apply(str)
     )
 
-    temp_current = set()
-    for i in feature_grouped_dict.values():
-        temp_current.update(i)
-
-    feature_grouped_dict["13_remainder"] = set(df.columns) - temp_current
-
-    # To facilitate the incorporation of features at different time points to build models
-    feature_timepoint_dict = {}
-
-    feature_timepoint_mapping = {
-        "3m": "3m",
-        "6m": "_6m",
-        "12m": "_12m|_1y",
-        "18m": "18m|BF_implied",
-        "24m": "24m|2y",
-        "36m": "36m|3y",
-        "48m": "48m|4y",
-        "60m": "60m|5y|Traj_Type",
-        "1_9m_2hy": "_1m$|9m|_2hy|_30m"
-    }
-
-    for k, v in feature_timepoint_mapping.items():
-        feature_timepoint_dict[k] = set(df.columns[df.columns.str.contains(v)])
-
-    feature_timepoint_dict["after_birth"] = set()
-
-    for i in feature_timepoint_dict.values():
-        feature_timepoint_dict["after_birth"].update(i)
-
-    feature_timepoint_dict["at_birth"] = (
-            set(df.columns) - feature_timepoint_dict["after_birth"] - {"y"}
+    formatted_df["AUC (95%CI)"] = (
+            formatted_df["ROC_AUC"].apply(str) + " " + formatted_df["ROC_AUC_CI"].apply(str)
     )
 
-    target_repo = {
-        "Asthma_Diagnosis_3yCLA",
-        "Asthma_Diagnosis_5yCLA",
-        "Recurrent_Wheeze_1y",  # Self-report Wheeze at earliest time point
-        "Recurrent_Wheeze_3y",
-        "Recurrent_Wheeze_5y",
-        "Wheeze_Traj_Type",  # Derived by Vera Dai, Less NaN Value, 2+4 could be useful
-        "Medicine_for_Wheeze_5yCLA",  # More objective
-        "Viral_Asthma_3yCLA",  # No need to decide "possible" category
-        "Triggered_Asthma_3yCLA",
-        "Viral_Asthma_5yCLA",  # No need to decide "possible" category
-        "Triggered_Asthma_5yCLA",
-    }
-
-    print("------------------------------------------------------")
-    print(
-        "The available grouped feature can be one of: \n", feature_grouped_dict.keys()
-    )
-    print("------------------------------------------------------")
-    print(
-        "The available time-points for features can be one of: \n",
-        feature_timepoint_dict.keys(),
-    )
-    print("------------------------------------------------------")
-    print("Note: Target variable can be one of: \n", target_repo)
-    print("------------------------------------------------------")
-
-    feature_grouped_overview = pd.DataFrame(
-        [feature_grouped_dict.keys(), feature_grouped_dict.values()], index=["Type", "Features"]
-    ).T.set_index("Type").drop(index=["1_11"])
-
-    feature_grouped_overview.loc[-1] = str(target_repo)
-
-    feature_grouped_overview.rename(index={-1: "14_target"}, inplace=True)
-
-    time_variable_overview = (
-        pd.DataFrame(
-            [feature_timepoint_dict.keys(), feature_timepoint_dict.values()], index=["Time_Points", "Features"]
+    if upper_lower_separation:
+        formatted_df.reset_index(inplace=True)
+        formatted_df[["AP_CI_Lower", "AP_CI_Higher"]] = pd.DataFrame(
+            formatted_df.Average_Precision_CI.to_list(),
+            columns=["AP_CI_Lower", "AP_CI_Higher"],
         )
-            .T.set_index("Time_Points")
-            .drop(index=["1_9m_2hy"])
-    )
+        formatted_df[["ROC_CI_Lower", "ROC_CI_Higher"]] = pd.DataFrame(
+            formatted_df.ROC_AUC_CI.to_list(), columns=["ROC_CI_Lower", "ROC_CI_Higher"]
+        )
+        return formatted_df
 
-    return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
-
+    return formatted_df[formatted_df.columns[formatted_df.columns.str.contains("95%")]]
 
 
 def filter_features(x, threshold=0.015):
@@ -2055,12 +2490,19 @@ def filter_features(x, threshold=0.015):
 
 
 # For dataframe apply lambda usage to change features into categories
-def category_detection(keywords, four_type_dict):
-    for keys in list(four_type_dict.keys())[:4]:
-        if keywords in four_type_dict[keys]:
+# def category_detection(keywords, four_type_dict):
+#     for keys in list(four_type_dict.keys())[:4]:
+#         if keywords in four_type_dict[keys]:
+#             return keys.title()
+#     else:
+#         return np.nan
+
+def category_detection(keywords, category_dict):
+    for keys in list(category_dict.keys())[:3]:
+        if keywords in category_dict[keys]:
             return keys.title()
     else:
-        return np.nan
+        return "Uncategorized"
 
 
 # View the highest performed features for various machine learning models
@@ -2074,8 +2516,9 @@ def ml_feature_selection(
         is_floating=True,
         fixed_features=None,
         precision_inspection_range=0.02,
-        test_model_number=None, #  0 represents only specific ML model will be used, None represent all model in function
-        clf=(None,"model_name"), # The first element is classifier, the second element is the name to be referred
+        test_model_number=None,
+        # 0 represents only specific ML model will be used, None represent all model in function
+        clf=(None, "model_name"),  # The first element is classifier, the second element is the name to be referred
 ):
     """
     Generate feature subset performance dataframe for minimal feature selection.
@@ -2122,7 +2565,7 @@ def ml_feature_selection(
         scale_pos_weight=15,
         subsample=0.8,
         random_state=2021,
-#        verbosity=False,
+        #        verbosity=False,
     )
     # SVC
     svc = SVC(
@@ -2168,7 +2611,8 @@ def ml_feature_selection(
 
     else:
         for model, model_name in zip(
-                [lr, rf, dt, knn, xgb, svc][:test_model_number], ["lr", "rf", "dt", "knn", "xgb", "svc"][:test_model_number]
+                [lr, rf, dt, knn, xgb, svc][:test_model_number],
+                ["lr", "rf", "dt", "knn", "xgb", "svc"][:test_model_number]
         ):
             print(
                 "Current classifier where feature selection is being tested is:", model_name
@@ -2268,18 +2712,18 @@ def ml_feature_selection(
 
 # Final Model Performance - Holdout Result View
 def model_result_holdout(
-    df_train_eval,
-    df_holdout,
-    feature_columns_selected,
-    target_name,
-    random_state_for_eval_split=123,
-    eval_positive_number=30,
-    eval_negative_number=150,
-    train_eval_separation_to_fit=False,
-    estimator=LogisticRegression(class_weight="balanced"),
-    scalar=MinMaxScaler(),
-    voting=None,
-    display=False,
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name,
+        random_state_for_eval_split=123,
+        eval_positive_number=30,
+        eval_negative_number=150,
+        train_eval_separation_to_fit=False,
+        estimator=LogisticRegression(class_weight="balanced"),
+        scalar=MinMaxScaler(),
+        voting=None,
+        display=False,
 ):
     """
     Perform model performance test on holdout dataset with trained model with given feature columns. Dataframe
@@ -2308,13 +2752,13 @@ def model_result_holdout(
         eval_positive_index = np.random.RandomState(
             random_state_for_eval_split
         ).permutation(df_train_eval[df_train_eval[target_name] == 1].index)[
-            :eval_positive_number
-        ]
+                              :eval_positive_number
+                              ]
         eval_negative_index = np.random.RandomState(
             random_state_for_eval_split
         ).permutation(df_train_eval[df_train_eval[target_name] == 0].index)[
-            :eval_negative_number
-        ]
+                              :eval_negative_number
+                              ]
 
         eval_index = set(list(eval_positive_index) + list(eval_negative_index))
         whole_index = set(df_train_eval.index)
@@ -2405,18 +2849,19 @@ def model_result_holdout(
 
     return holdout_result, estimator
 
+
 # Final Model Performance with bootstrapping - Confidence Interval calculations
 def model_metrics_bootstrapstats(
-    df_train_eval,
-    df_holdout,
-    feature_columns_selected,
-    target_name="Asthma_Diagnosis_5yCLA",
-    bootstrap_replace=False,
-    bootstrap_iterations=80,
-    subset_percentage=0.95,
-    confidence_alpha=0.95,
-    estimator=LogisticRegression(class_weight="balanced"),
-    scalar=MinMaxScaler(),
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name="Asthma_Diagnosis_5yCLA",
+        bootstrap_replace=False,
+        bootstrap_iterations=80,
+        subset_percentage=0.95,
+        confidence_alpha=0.95,
+        estimator=LogisticRegression(class_weight="balanced"),
+        scalar=MinMaxScaler(),
 ):
     # For stratification X,y will be created for df_train_eval
     X = df_train_eval.drop(columns=target_name)
@@ -2471,7 +2916,6 @@ def model_metrics_bootstrapstats(
     res_metrics["average_precision_CI"] = (lower_ap, upper_ap)
 
     return res_metrics, res_holdout
-
 
 
 # An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
@@ -2568,7 +3012,7 @@ def df_ml_run(
         scale_pos_weight=15,
         subsample=0.8,
         random_state=2021,
-#        verbosity=False
+        #        verbosity=False
     )
     # SVC
     svc = SVC(
@@ -2597,7 +3041,7 @@ def df_ml_run(
     }
 
     permutation_importance_list = [(svc, "svc")]
-#    permutation_importance_list = [(knn, "knn"), (svc, "svc"), (nb, "nb")]
+    #    permutation_importance_list = [(knn, "knn"), (svc, "svc"), (nb, "nb")]
     feature_importance_list = [(dt, "dt"), (rf, "rf"), (xgb, "xgb")]
     coefficient_list = [(lr, "lr")]
 
@@ -2721,7 +3165,7 @@ def df_ml_run(
     #     "eXtreme_Gradient_Boost",
     # ]
 
-    models = [lr, rf, xgb, svc,dt]
+    models = [lr, rf, xgb, svc, dt]
     models_label = [
         "Logistic_Regression",
         "Random_Forest",
@@ -2865,7 +3309,6 @@ def df_ml_run(
     model_cm_df.index = index_name
 
     return score_df, score_dict_highest, feature_res_returned, model_cm_df, dt
-
 
 
 # Identify the minimal features that generate highest performance using self-defined strategies.
