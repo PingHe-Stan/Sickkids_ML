@@ -289,372 +289,6 @@ def df_holdout_throughout(
     return df_child_ml, rest_index, holdout_index
 
 
-# grouped_feature_generator will be applied
-# BF_Implied_Duration feature will be moved to with 36m
-def features_four_timepoint(df):
-    _, features_all_timepoint, _, _ = grouped_feature_generator(df)
-    feature_fourtime_dict = {}
-    feature_fourtime_dict['at_birth_feature'] = features_all_timepoint["at_birth"] - {"BF_Implied_Duration"}
-    feature_fourtime_dict['with_6m'] = features_all_timepoint["3m"] | features_all_timepoint["6m"] | {i for i in
-                                                                                                      features_all_timepoint[
-                                                                                                          "1_9m_2hy"] if
-                                                                                                      "_1m" in i}
-    feature_fourtime_dict['with_12m'] = features_all_timepoint["12m"] | {i for i in features_all_timepoint["1_9m_2hy"]
-                                                                         if "_9m" in i}
-    feature_fourtime_dict['with_36m_all'] = (
-            features_all_timepoint["18m"]
-            | features_all_timepoint["24m"]
-            | features_all_timepoint["36m"]
-            | {i for i in features_all_timepoint["1_9m_2hy"] if ("_2hy" in i) | ("_30m" in i)} | {"BF_Implied_Duration"}
-    )
-
-    feature_fourtime_dict['with_36m_exclude_diagnosis'] = feature_fourtime_dict['with_36m_all'] - {
-        "Asthma_Diagnosis_3yCLA", "Triggered_Asthma_3yCLA", "Viral_Asthma_3yCLA"}
-
-    feature_fourtime_dict['all_four_exclude_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
-                                                            feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
-                                                                'with_12m'] | feature_fourtime_dict[
-                                                                'with_36m_exclude_diagnosis']
-    feature_fourtime_dict['all_four_include_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
-                                                            feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
-                                                                'with_12m'] | feature_fourtime_dict['with_36m_all']
-
-    print(f"The available keys are {feature_fourtime_dict.keys()}")
-
-    return feature_fourtime_dict
-
-def grouped_feature_generator(df):
-    """
-    Automaticly generate subset of variables to facilitate the feature selection, feature imputation, as well as time-point longitudinal ML analysis process.
-    :param df Dataframe to be operated on
-    :return: two dictionaries containing groupped features, and features at different time points
-
-    Example:
-    feature_dict, timepoint_dict, feature_grouped_overview, time_grouped_overview = grouped_feature_generator(df)
-    """
-
-    # To facilitate the selections of features as well as the multivariate imputation for grouped features to build models
-    feature_grouped_dict = {}
-
-    feature_grouped_mapping = {
-        "1_weight": "^Weight_",
-        "2_mother_condition": "^Prenatal_",
-        "3_first10min": "10min_",
-        "4_breastfeeding": "^BF_",
-        "5_home": "^Home",
-        "6_mental": "^PSS_|^CESD_",
-        "7_parental": "Mother|Father|Dad|Mom|Parental",
-        "8_smoke": "Smoke",
-        "9_wheeze": "Wheeze",
-        "10_resp": "Respiratory|RI",
-        "11_antibiotic": "Antibiotic",
-    }
-
-    for k, v in feature_grouped_mapping.items():
-        feature_grouped_dict[k] = set(df.columns[df.columns.str.contains(v)])
-
-    feature_grouped_dict["1_11"] = set()
-    for i in feature_grouped_dict.values():
-        feature_grouped_dict["1_11"].update(i)
-
-    feature_grouped_dict["12_misc"] = (
-            set(df.columns)
-            - feature_grouped_dict["1_11"]
-            - set(df.columns[df.columns.str.contains("yCLA")])
-            - {"y"}
-    )
-
-    temp_current = set()
-    for i in feature_grouped_dict.values():
-        temp_current.update(i)
-
-    feature_grouped_dict["13_remainder"] = set(df.columns) - temp_current
-
-    # To facilitate the incorporation of features at different time points to build models
-    feature_timepoint_dict = {}
-
-    feature_timepoint_mapping = {
-        "3m": "3m",
-        "6m": "_6m",
-        "12m": "_12m|_1y",
-        "18m": "18m|BF_implied",
-        "24m": "24m|2y",
-        "36m": "36m|3y",
-        "48m": "48m|4y",
-        "60m": "60m|5y|Traj_Type",
-        "1_9m_2hy": "_1m$|9m|_2hy|_30m"
-    }
-
-    for k, v in feature_timepoint_mapping.items():
-        feature_timepoint_dict[k] = set(df.columns[df.columns.str.contains(v)])
-
-    feature_timepoint_dict["after_birth"] = set()
-
-    for i in feature_timepoint_dict.values():
-        feature_timepoint_dict["after_birth"].update(i)
-
-    feature_timepoint_dict["at_birth"] = (
-            set(df.columns) - feature_timepoint_dict["after_birth"] - {"y"}
-    )
-
-    target_repo = {
-        "Asthma_Diagnosis_3yCLA",
-        "Asthma_Diagnosis_5yCLA",
-        "Recurrent_Wheeze_1y",  # Self-report Wheeze at earliest time point
-        "Recurrent_Wheeze_3y",
-        "Recurrent_Wheeze_5y",
-        "Wheeze_Traj_Type",  # Derived by Vera Dai, Less NaN Value, 2+4 could be useful
-        "Medicine_for_Wheeze_5yCLA",  # More objective
-        "Viral_Asthma_3yCLA",  # No need to decide "possible" category
-        "Triggered_Asthma_3yCLA",
-        "Viral_Asthma_5yCLA",  # No need to decide "possible" category
-        "Triggered_Asthma_5yCLA",
-    }
-
-    print("------------------------------------------------------")
-    print(
-        "The available grouped feature can be one of: \n", feature_grouped_dict.keys()
-    )
-    print("------------------------------------------------------")
-    print(
-        "The available time-points for features can be one of: \n",
-        feature_timepoint_dict.keys(),
-    )
-    print("------------------------------------------------------")
-    print("Note: Target variable can be one of: \n", target_repo)
-    print("------------------------------------------------------")
-
-    feature_grouped_overview = pd.DataFrame(
-        [feature_grouped_dict.keys(), feature_grouped_dict.values()], index=["Type", "Features"]
-    ).T.set_index("Type").drop(index=["1_11"])
-
-    feature_grouped_overview.loc[-1] = str(target_repo)
-
-    feature_grouped_overview.rename(index={-1: "14_target"}, inplace=True)
-
-    time_variable_overview = (
-        pd.DataFrame(
-            [feature_timepoint_dict.keys(), feature_timepoint_dict.values()], index=["Time_Points", "Features"]
-        )
-            .T.set_index("Time_Points")
-            .drop(index=["1_9m_2hy"])
-    )
-
-    return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
-
-# Create four types for clinical applications. grouped_feature_generator will be applied, Based on Theo Moraes medical viewwpoint
-def features_four_types(df):
-    features_all_types, _, _, _ = grouped_feature_generator(df)
-    feature_fourtype_dict = {}
-
-    # Define Genetic Variables
-    gen_1 = features_all_types["7_parental"] - {"Prenatal_Mother_Condition"}
-    gen_2 = {
-        "Child_Ethnicity_Caucasian",
-        "Child_Ethnicity_HalfCaucas",
-        "Child_Ethnicity_NonCaucas",
-    }
-    feature_fourtype_dict["genetic"] = gen_1 | gen_2
-
-    # Define Clinic Variables
-    cli_1 = features_all_types["9_wheeze"] - {"Wheeze_Father", "Wheeze_Mother"}
-    cli_1 = {
-        i
-        for i in cli_1
-        if (
-                ("_4y" not in i)
-                & ("_5y" not in i)
-                & ("5yCLA" not in i)
-                & ("Traj_Type" not in i)
-        )
-    }
-
-    cli_2 = {i for i in features_all_types["13_remainder"] if "5yCLA" not in i} - {
-        "Asthma_Diagnosis_3yCLA",
-        "Triggered_Asthma_3yCLA",
-        "Viral_Asthma_3yCLA",
-    }
-    cli_3 = {
-        "Apgar_Score_1min",
-        "Apgar_Score_5min",
-        "Child_Atopy_1y",
-        "Child_Atopy_3y",
-        "Child_Food_1y",
-        "Child_Food_3y",
-        "Child_Inhalant_1y",
-        "Child_Inhalant_3y",
-        "Complications_Birth",
-        "Sex_M",
-        "Gest_Days",
-        "Jaundice_Birth",
-        "Stay_Duration_Hospital",
-    }
-
-    cli_4 = features_all_types["1_weight"] - {"Weight_60m"}
-
-    feature_fourtype_dict["clinic"] = (
-            features_all_types["3_first10min"]
-            | features_all_types["10_resp"]
-            | cli_1
-            | cli_2
-            | cli_3
-            | cli_4
-    )
-
-    # Define Environmental Variables
-
-    env_1 = {
-        "Prenatal_Mother_Condition",
-        "Mode_of_delivery_Vaginal",
-        "Analgesics_usage_delivery",
-        "Anesthetic_delivery",
-    }
-
-    environmental = [
-        "2_mother_condition",
-        "4_breastfeeding",
-        "5_home",
-        "8_smoke",
-        "11_antibiotic",
-    ]
-    feature_fourtype_dict["environmental"] = (
-            features_all_types["2_mother_condition"]
-            | features_all_types["4_breastfeeding"]
-            | features_all_types["5_home"]
-            | features_all_types["8_smoke"]
-            | features_all_types["11_antibiotic"]
-            | env_1
-    )
-
-    # Define Other Variables
-    oth_1 = {
-        "Study_Center_Edmonton",
-        "Study_Center_Toronto",
-        "Study_Center_Vancouver",
-        "Study_Center_Winnipeg",
-        "No_of_Pregnancy",
-    }
-
-    feature_fourtype_dict["other"] = features_all_types["6_mental"] | oth_1
-
-    feature_fourtype_dict["all_variables_till3y"] = (
-            feature_fourtype_dict["other"]
-            | feature_fourtype_dict["environmental"]
-            | feature_fourtype_dict["clinic"]
-            | feature_fourtype_dict["genetic"]
-    )
-
-    print(f"The available keys are {feature_fourtype_dict.keys()}")
-
-    return feature_fourtype_dict
-
-# Create four types for clinical applications. grouped_feature_generator will be applied, Based on Theo Moraes medical viewwpoint
-def features_three_types(df):
-    features_all_types, _, _, _ = grouped_feature_generator(df)
-    feature_threetype_dict = {}
-
-    # Define Genetic Variables
-    gen_1 = features_all_types["7_parental"] - {"Prenatal_Mother_Condition"}
-    gen_2 = {
-        "Child_Ethnicity_Caucasian",
-        "Child_Ethnicity_HalfCaucas",
-        "Child_Ethnicity_NonCaucas",
-        "Sex_M",  # Advised from integration meeting Mar 10,2022
-    }
-    feature_threetype_dict["genetic"] = gen_1 | gen_2
-
-    # Define Clinic Variables
-    cli_1 = features_all_types["9_wheeze"] - {"Wheeze_Father", "Wheeze_Mother"}
-    cli_1 = {
-        i
-        for i in cli_1
-        if (
-                ("_4y" not in i)
-                & ("_5y" not in i)
-                & ("5yCLA" not in i)
-                & ("Traj_Type" not in i)
-        )
-    }
-
-    cli_2 = {i for i in features_all_types["13_remainder"] if "5yCLA" not in i} - {
-        "Asthma_Diagnosis_3yCLA",
-        "Triggered_Asthma_3yCLA",
-        "Viral_Asthma_3yCLA",
-    }
-    cli_3 = {
-        "Apgar_Score_1min",
-        "Apgar_Score_5min",
-        "Child_Atopy_1y",
-        "Child_Atopy_3y",
-        "Child_Food_1y",
-        "Child_Food_3y",
-        "Child_Inhalant_1y",
-        "Child_Inhalant_3y",
-        "Mode_of_delivery_Vaginal",  # Advised from integration meeting Mar 10,2022
-        "Complications_Birth",
-        "Gest_Days",
-        "Jaundice_Birth",
-        "Stay_Duration_Hospital",
-    }
-
-    cli_4 = features_all_types["1_weight"] - {"Weight_60m"}
-
-    feature_threetype_dict["clinic"] = (
-            features_all_types["3_first10min"]
-            | features_all_types["10_resp"]
-            | cli_1
-            | cli_2
-            | cli_3
-            | cli_4
-    )
-
-    # Define Environmental Variables
-
-    env_1 = {
-        "Prenatal_Mother_Condition",
-        "Analgesics_usage_delivery",
-        "Anesthetic_delivery",
-    }
-
-    env_2 = {  # Advised from integration meeting Mar 10,2022
-        "Study_Center_Edmonton",
-        "Study_Center_Toronto",
-        "Study_Center_Vancouver",
-        "Study_Center_Winnipeg",
-        "No_of_Pregnancy",
-    }
-
-    environmental = [
-        "2_mother_condition",
-        "4_breastfeeding",
-        "5_home",
-        "8_smoke",
-        "11_antibiotic",
-    ]
-    feature_threetype_dict["environmental"] = (
-            features_all_types["2_mother_condition"]
-            | features_all_types["4_breastfeeding"]
-            | features_all_types["5_home"]
-            | features_all_types["8_smoke"]
-            | features_all_types["11_antibiotic"]
-            | features_all_types["6_mental"]  # Advised from integration meeting Mar 10,2022
-            | env_1
-            | env_2  # Advised from integration meeting Mar 10,2022
-    )
-
-    # Define Collective Variables
-
-    feature_threetype_dict["all_variables_till3y"] = (
-            feature_threetype_dict["environmental"]
-            | feature_threetype_dict["clinic"]
-            | feature_threetype_dict["genetic"]
-    )
-
-    print(f"The available keys are {feature_threetype_dict.keys()}")
-
-    return feature_threetype_dict
-
-
 def feature_grouping_generator(df, group_type="four_timepoints"):
     """
     group_type: str, default: "four_timepoints"
@@ -1225,7 +859,7 @@ def feature_directionality_extraction(
         # Visualizations for individual time point
         plt.figure(figsize=(12, 8), dpi=200)
         sns.barplot(
-            data=imp_features, y=imp_features.index, x=imp_features[i],
+        data=imp_features, y=imp_features.index, x=imp_features[i],palette="RdBu"
         )
 
     lr_directionality_progression = list(feature_direction_dict.values())[
@@ -1355,7 +989,7 @@ def feature_merged_directionality(
     k = sns.heatmap(
         merged_fi_directionality[:],
         #    cmap="vlag",
-        cmap="RdBu",
+        cmap="RdBu_r",
         center=0,
         vmax=1,
         vmin=-1,
@@ -1376,6 +1010,7 @@ def feature_merged_directionality(
 
 
 # Create dataframe for visualize category (instead of feature) importance at multiple timepoints
+# There will be no direction for all features
 def feature_category_dataframe(
     ml_res_final,
     df,  # Transformed Dataframe for extracting categories
@@ -1474,7 +1109,7 @@ def ml_ensemble_res(
         df_holdout,
         ml_merged_features,
         scalar=MinMaxScaler(),
-        threshold_for_selection=0.1,
+        threshold_for_selection=0.05, #This number will control the total number of features that will be used in the model. For a tree with a given max feature, fewer features selected will cause the model to err
         ci_bootstrap=False,
         bootstrap_replace=False,
         bootstrap_iterations=30,
@@ -2444,7 +2079,7 @@ def ml_autofs_multiplepoints(
         feature_res[time_points].sort_values(estimator_name, ascending=False, inplace=True)
         plt.figure(figsize=(12, 8), dpi=200)
         sns.barplot(
-            data=feature_res[time_points], y=feature_res[time_points].index, x=feature_res[time_points][estimator_name],
+            data=feature_res[time_points], y=feature_res[time_points].index, x=feature_res[time_points][estimator_name], palette="RdBu"
         )
 
     return res_df, holdout_res, feature_res
@@ -2498,7 +2133,7 @@ def filter_features(x, threshold=0.015):
 #         return np.nan
 
 def category_detection(keywords, category_dict):
-    for keys in list(category_dict.keys())[:3]:
+    for keys in list(category_dict.keys()):
         if keywords in category_dict[keys]:
             return keys.title()
     else:
@@ -4805,3 +4440,370 @@ def target_alluvial_analysis(df_child,
     fig.update_layout(layout)
 
     return fig
+
+
+######################################Deprecated code##################################
+# # grouped_feature_generator will be applied
+# def grouped_feature_generator(df):
+#     """
+#     Automaticly generate subset of variables to facilitate the feature selection, feature imputation, as well as time-point longitudinal ML analysis process.
+#     :param df Dataframe to be operated on
+#     :return: two dictionaries containing groupped features, and features at different time points
+#
+#     Example:
+#     feature_dict, timepoint_dict, feature_grouped_overview, time_grouped_overview = grouped_feature_generator(df)
+#     """
+#
+#     # To facilitate the selections of features as well as the multivariate imputation for grouped features to build models
+#     feature_grouped_dict = {}
+#
+#     feature_grouped_mapping = {
+#         "1_weight": "^Weight_",
+#         "2_mother_condition": "^Prenatal_",
+#         "3_first10min": "10min_",
+#         "4_breastfeeding": "^BF_",
+#         "5_home": "^Home",
+#         "6_mental": "^PSS_|^CESD_",
+#         "7_parental": "Mother|Father|Dad|Mom|Parental",
+#         "8_smoke": "Smoke",
+#         "9_wheeze": "Wheeze",
+#         "10_resp": "Respiratory|RI",
+#         "11_antibiotic": "Antibiotic",
+#     }
+#
+#     for k, v in feature_grouped_mapping.items():
+#         feature_grouped_dict[k] = set(df.columns[df.columns.str.contains(v)])
+#
+#     feature_grouped_dict["1_11"] = set()
+#     for i in feature_grouped_dict.values():
+#         feature_grouped_dict["1_11"].update(i)
+#
+#     feature_grouped_dict["12_misc"] = (
+#             set(df.columns)
+#             - feature_grouped_dict["1_11"]
+#             - set(df.columns[df.columns.str.contains("yCLA")])
+#             - {"y"}
+#     )
+#
+#     temp_current = set()
+#     for i in feature_grouped_dict.values():
+#         temp_current.update(i)
+#
+#     feature_grouped_dict["13_remainder"] = set(df.columns) - temp_current
+#
+#     # To facilitate the incorporation of features at different time points to build models
+#     feature_timepoint_dict = {}
+#
+#     feature_timepoint_mapping = {
+#         "3m": "3m",
+#         "6m": "_6m",
+#         "12m": "_12m|_1y",
+#         "18m": "18m|BF_implied",
+#         "24m": "24m|2y",
+#         "36m": "36m|3y",
+#         "48m": "48m|4y",
+#         "60m": "60m|5y|Traj_Type",
+#         "1_9m_2hy": "_1m$|9m|_2hy|_30m"
+#     }
+#
+#     for k, v in feature_timepoint_mapping.items():
+#         feature_timepoint_dict[k] = set(df.columns[df.columns.str.contains(v)])
+#
+#     feature_timepoint_dict["after_birth"] = set()
+#
+#     for i in feature_timepoint_dict.values():
+#         feature_timepoint_dict["after_birth"].update(i)
+#
+#     feature_timepoint_dict["at_birth"] = (
+#             set(df.columns) - feature_timepoint_dict["after_birth"] - {"y"}
+#     )
+#
+#     target_repo = {
+#         "Asthma_Diagnosis_3yCLA",
+#         "Asthma_Diagnosis_5yCLA",
+#         "Recurrent_Wheeze_1y",  # Self-report Wheeze at earliest time point
+#         "Recurrent_Wheeze_3y",
+#         "Recurrent_Wheeze_5y",
+#         "Wheeze_Traj_Type",  # Derived by Vera Dai, Less NaN Value, 2+4 could be useful
+#         "Medicine_for_Wheeze_5yCLA",  # More objective
+#         "Viral_Asthma_3yCLA",  # No need to decide "possible" category
+#         "Triggered_Asthma_3yCLA",
+#         "Viral_Asthma_5yCLA",  # No need to decide "possible" category
+#         "Triggered_Asthma_5yCLA",
+#     }
+#
+#     print("------------------------------------------------------")
+#     print(
+#         "The available grouped feature can be one of: \n", feature_grouped_dict.keys()
+#     )
+#     print("------------------------------------------------------")
+#     print(
+#         "The available time-points for features can be one of: \n",
+#         feature_timepoint_dict.keys(),
+#     )
+#     print("------------------------------------------------------")
+#     print("Note: Target variable can be one of: \n", target_repo)
+#     print("------------------------------------------------------")
+#
+#     feature_grouped_overview = pd.DataFrame(
+#         [feature_grouped_dict.keys(), feature_grouped_dict.values()], index=["Type", "Features"]
+#     ).T.set_index("Type").drop(index=["1_11"])
+#
+#     feature_grouped_overview.loc[-1] = str(target_repo)
+#
+#     feature_grouped_overview.rename(index={-1: "14_target"}, inplace=True)
+#
+#     time_variable_overview = (
+#         pd.DataFrame(
+#             [feature_timepoint_dict.keys(), feature_timepoint_dict.values()], index=["Time_Points", "Features"]
+#         )
+#             .T.set_index("Time_Points")
+#             .drop(index=["1_9m_2hy"])
+#     )
+#
+#     return feature_grouped_dict, feature_timepoint_dict, feature_grouped_overview, time_variable_overview
+#
+# # BF_Implied_Duration feature will be moved to with 36m
+# def features_four_timepoint(df):
+#     _, features_all_timepoint, _, _ = grouped_feature_generator(df)
+#     feature_fourtime_dict = {}
+#     feature_fourtime_dict['at_birth_feature'] = features_all_timepoint["at_birth"] - {"BF_Implied_Duration"}
+#     feature_fourtime_dict['with_6m'] = features_all_timepoint["3m"] | features_all_timepoint["6m"] | {i for i in
+#                                                                                                       features_all_timepoint[
+#                                                                                                           "1_9m_2hy"] if
+#                                                                                                       "_1m" in i}
+#     feature_fourtime_dict['with_12m'] = features_all_timepoint["12m"] | {i for i in features_all_timepoint["1_9m_2hy"]
+#                                                                          if "_9m" in i}
+#     feature_fourtime_dict['with_36m_all'] = (
+#             features_all_timepoint["18m"]
+#             | features_all_timepoint["24m"]
+#             | features_all_timepoint["36m"]
+#             | {i for i in features_all_timepoint["1_9m_2hy"] if ("_2hy" in i) | ("_30m" in i)} | {"BF_Implied_Duration"}
+#     )
+#
+#     feature_fourtime_dict['with_36m_exclude_diagnosis'] = feature_fourtime_dict['with_36m_all'] - {
+#         "Asthma_Diagnosis_3yCLA", "Triggered_Asthma_3yCLA", "Viral_Asthma_3yCLA"}
+#
+#     feature_fourtime_dict['all_four_exclude_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
+#                                                             feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
+#                                                                 'with_12m'] | feature_fourtime_dict[
+#                                                                 'with_36m_exclude_diagnosis']
+#     feature_fourtime_dict['all_four_include_3yDiagnosis'] = feature_fourtime_dict['at_birth_feature'] | \
+#                                                             feature_fourtime_dict['with_6m'] | feature_fourtime_dict[
+#                                                                 'with_12m'] | feature_fourtime_dict['with_36m_all']
+#
+#     print(f"The available keys are {feature_fourtime_dict.keys()}")
+#
+#     return feature_fourtime_dict
+#
+# # Create four types for clinical applications. grouped_feature_generator will be applied, Based on Theo Moraes medical viewwpoint
+# def features_four_types(df):
+#     features_all_types, _, _, _ = grouped_feature_generator(df)
+#     feature_fourtype_dict = {}
+#
+#     # Define Genetic Variables
+#     gen_1 = features_all_types["7_parental"] - {"Prenatal_Mother_Condition"}
+#     gen_2 = {
+#         "Child_Ethnicity_Caucasian",
+#         "Child_Ethnicity_HalfCaucas",
+#         "Child_Ethnicity_NonCaucas",
+#     }
+#     feature_fourtype_dict["genetic"] = gen_1 | gen_2
+#
+#     # Define Clinic Variables
+#     cli_1 = features_all_types["9_wheeze"] - {"Wheeze_Father", "Wheeze_Mother"}
+#     cli_1 = {
+#         i
+#         for i in cli_1
+#         if (
+#                 ("_4y" not in i)
+#                 & ("_5y" not in i)
+#                 & ("5yCLA" not in i)
+#                 & ("Traj_Type" not in i)
+#         )
+#     }
+#
+#     cli_2 = {i for i in features_all_types["13_remainder"] if "5yCLA" not in i} - {
+#         "Asthma_Diagnosis_3yCLA",
+#         "Triggered_Asthma_3yCLA",
+#         "Viral_Asthma_3yCLA",
+#     }
+#     cli_3 = {
+#         "Apgar_Score_1min",
+#         "Apgar_Score_5min",
+#         "Child_Atopy_1y",
+#         "Child_Atopy_3y",
+#         "Child_Food_1y",
+#         "Child_Food_3y",
+#         "Child_Inhalant_1y",
+#         "Child_Inhalant_3y",
+#         "Complications_Birth",
+#         "Sex_M",
+#         "Gest_Days",
+#         "Jaundice_Birth",
+#         "Stay_Duration_Hospital",
+#     }
+#
+#     cli_4 = features_all_types["1_weight"] - {"Weight_60m"}
+#
+#     feature_fourtype_dict["clinic"] = (
+#             features_all_types["3_first10min"]
+#             | features_all_types["10_resp"]
+#             | cli_1
+#             | cli_2
+#             | cli_3
+#             | cli_4
+#     )
+#
+#     # Define Environmental Variables
+#
+#     env_1 = {
+#         "Prenatal_Mother_Condition",
+#         "Mode_of_delivery_Vaginal",
+#         "Analgesics_usage_delivery",
+#         "Anesthetic_delivery",
+#     }
+#
+#     environmental = [
+#         "2_mother_condition",
+#         "4_breastfeeding",
+#         "5_home",
+#         "8_smoke",
+#         "11_antibiotic",
+#     ]
+#     feature_fourtype_dict["environmental"] = (
+#             features_all_types["2_mother_condition"]
+#             | features_all_types["4_breastfeeding"]
+#             | features_all_types["5_home"]
+#             | features_all_types["8_smoke"]
+#             | features_all_types["11_antibiotic"]
+#             | env_1
+#     )
+#
+#     # Define Other Variables
+#     oth_1 = {
+#         "Study_Center_Edmonton",
+#         "Study_Center_Toronto",
+#         "Study_Center_Vancouver",
+#         "Study_Center_Winnipeg",
+#         "No_of_Pregnancy",
+#     }
+#
+#     feature_fourtype_dict["other"] = features_all_types["6_mental"] | oth_1
+#
+#     feature_fourtype_dict["all_variables_till3y"] = (
+#             feature_fourtype_dict["other"]
+#             | feature_fourtype_dict["environmental"]
+#             | feature_fourtype_dict["clinic"]
+#             | feature_fourtype_dict["genetic"]
+#     )
+#
+#     print(f"The available keys are {feature_fourtype_dict.keys()}")
+#
+#     return feature_fourtype_dict
+#
+# # Create four types for clinical applications. grouped_feature_generator will be applied, Based on Theo Moraes medical viewwpoint
+# def features_three_types(df):
+#     features_all_types, _, _, _ = grouped_feature_generator(df)
+#     feature_threetype_dict = {}
+#
+#     # Define Genetic Variables
+#     gen_1 = features_all_types["7_parental"] - {"Prenatal_Mother_Condition"}
+#     gen_2 = {
+#         "Child_Ethnicity_Caucasian",
+#         "Child_Ethnicity_HalfCaucas",
+#         "Child_Ethnicity_NonCaucas",
+#         "Sex_M",  # Advised from integration meeting Mar 10,2022
+#     }
+#     feature_threetype_dict["genetic"] = gen_1 | gen_2
+#
+#     # Define Clinic Variables
+#     cli_1 = features_all_types["9_wheeze"] - {"Wheeze_Father", "Wheeze_Mother"}
+#     cli_1 = {
+#         i
+#         for i in cli_1
+#         if (
+#                 ("_4y" not in i)
+#                 & ("_5y" not in i)
+#                 & ("5yCLA" not in i)
+#                 & ("Traj_Type" not in i)
+#         )
+#     }
+#
+#     cli_2 = {i for i in features_all_types["13_remainder"] if "5yCLA" not in i} - {
+#         "Asthma_Diagnosis_3yCLA",
+#         "Triggered_Asthma_3yCLA",
+#         "Viral_Asthma_3yCLA",
+#     }
+#     cli_3 = {
+#         "Apgar_Score_1min",
+#         "Apgar_Score_5min",
+#         "Child_Atopy_1y",
+#         "Child_Atopy_3y",
+#         "Child_Food_1y",
+#         "Child_Food_3y",
+#         "Child_Inhalant_1y",
+#         "Child_Inhalant_3y",
+#         "Mode_of_delivery_Vaginal",  # Advised from integration meeting Mar 10,2022
+#         "Complications_Birth",
+#         "Gest_Days",
+#         "Jaundice_Birth",
+#         "Stay_Duration_Hospital",
+#     }
+#
+#     cli_4 = features_all_types["1_weight"] - {"Weight_60m"}
+#
+#     feature_threetype_dict["clinic"] = (
+#             features_all_types["3_first10min"]
+#             | features_all_types["10_resp"]
+#             | cli_1
+#             | cli_2
+#             | cli_3
+#             | cli_4
+#     )
+#
+#     # Define Environmental Variables
+#
+#     env_1 = {
+#         "Prenatal_Mother_Condition",
+#         "Analgesics_usage_delivery",
+#         "Anesthetic_delivery",
+#     }
+#
+#     env_2 = {  # Advised from integration meeting Mar 10,2022
+#         "Study_Center_Edmonton",
+#         "Study_Center_Toronto",
+#         "Study_Center_Vancouver",
+#         "Study_Center_Winnipeg",
+#         "No_of_Pregnancy",
+#     }
+#
+#     environmental = [
+#         "2_mother_condition",
+#         "4_breastfeeding",
+#         "5_home",
+#         "8_smoke",
+#         "11_antibiotic",
+#     ]
+#     feature_threetype_dict["environmental"] = (
+#             features_all_types["2_mother_condition"]
+#             | features_all_types["4_breastfeeding"]
+#             | features_all_types["5_home"]
+#             | features_all_types["8_smoke"]
+#             | features_all_types["11_antibiotic"]
+#             | features_all_types["6_mental"]  # Advised from integration meeting Mar 10,2022
+#             | env_1
+#             | env_2  # Advised from integration meeting Mar 10,2022
+#     )
+#
+#     # Define Collective Variables
+#
+#     feature_threetype_dict["all_variables_till3y"] = (
+#             feature_threetype_dict["environmental"]
+#             | feature_threetype_dict["clinic"]
+#             | feature_threetype_dict["genetic"]
+#     )
+#
+#     print(f"The available keys are {feature_threetype_dict.keys()}")
+#
+#     return feature_threetype_dict
