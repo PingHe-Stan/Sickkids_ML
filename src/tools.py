@@ -858,8 +858,16 @@ def feature_directionality_extraction(
 
         # Visualizations for individual time point
         plt.figure(figsize=(12, 8), dpi=200)
+
+        colors_sets_basedon_values = [
+            plt.cm.Reds(x / abs(max(imp_features[i].values)))
+            if x > 0
+            else plt.cm.Blues(abs(x) / abs(max(imp_features[i].values)))
+            for x in imp_features[i].values
+        ]
+
         sns.barplot(
-        data=imp_features, y=imp_features.index, x=imp_features[i],palette="RdBu"
+        data=imp_features, y=imp_features.index, x=imp_features[i],palette=colors_sets_basedon_values
         )
 
     lr_directionality_progression = list(feature_direction_dict.values())[
