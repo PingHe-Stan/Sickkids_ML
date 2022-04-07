@@ -517,7 +517,7 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
             | set(
                 df.columns[
                     df.columns.str.contains(
-                        "Mode_of_delivery|Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Sex|Jaundice_Birth"
+                        "Mode_of_delivery|Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Jaundice_Birth"
                     )
                 ]
             )
