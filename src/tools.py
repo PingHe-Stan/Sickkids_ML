@@ -1065,21 +1065,18 @@ def feature_category_dataframe(
     how="sum",
     normalize=True,
     merged_thresh=0.0,
-    no_of_categories=3,
+    type_of_categories="three_categories",
 ):
     """
     :param ml_res_final: see feature_progression_merge() for reference
     :param df: see "features_four_timepoint()/features_three_timepoint()" for reference
     :param coef_thresh: see feature_progression_merge() for reference
+    :param type_of_categories: str, available categories include "four_timepoints"
+        "four_categories", "three_categories", "modifiability_categories", "detailed_timepoints", "detailed_categories"
     :return: a dataframe with feature importance in categories
     """
-    if no_of_categories == 3:
-        four_type_dict,_ = feature_grouping_generator(df,group_type='three_categories')
-    elif no_of_categories == 4:
-        four_type_dict,_ = feature_grouping_generator(df,group_type='four_categories')
-    else:
-        print("Invalid number. Four categories will be used.")
-        four_type_dict,_ = feature_grouping_generator(df,group_type='four_categories')
+
+    type_dict, _ = feature_grouping_generator(df, group_type=type_of_categories)
 
     ml_final_features = feature_progression_merge(
         ml_res_final,
@@ -1096,7 +1093,7 @@ def feature_category_dataframe(
         columns={"index": "Features"}
     )
     ml_final_features["Category"] = ml_final_features["Features"].apply(
-        lambda x: category_detection(x, four_type_dict)
+        lambda x: category_detection(x, type_dict)
     )
     ml_final_features["Features"] = ml_final_features["Features"].apply(
         lambda x: x.replace("_", " ")
