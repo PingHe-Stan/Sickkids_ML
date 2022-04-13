@@ -38,7 +38,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import (
     confusion_matrix,
     accuracy_score,
-    #    roc_curve,
+    roc_curve, # For calculating maximal Youden's index for ROC curve - (Sensitivity + Specificity - 1 ) or (TPR - FPR)
     average_precision_score,
     classification_report,
     f1_score,
@@ -2486,6 +2486,8 @@ def model_result_holdout(
         holdout_result["precision_recall_threshold"] = precision_recall_curve(
             y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
         )
+
+        # Highest F1 and Thresh
         p, r, threshold = precision_recall_curve(
             y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
         )
@@ -2495,9 +2497,28 @@ def model_result_holdout(
             f_score[f_score.argsort()[-1]],
             threshold[f_score.argsort()[-1]],
         )
+
         holdout_result["y_predicted_holdout_altered_threshold"] = np.where(
             holdout_result["y_predicted_prob_holdout"][:, 1]
             >= threshold[f_score.argsort()[-1]],
+            1,
+            0,
+        )
+
+        # Maximal Youden index cutoff and Thresh
+        tpr, fpr, youden_thresh = roc_curve(
+            y_holdout, holdout_result["y_predicted_prob_holdout"][:, 1]
+        )
+
+        youden_index = tpr - fpr
+        holdout_result["highest_youden_and_threshold"] = (
+            youden_index[youden_index.argsort()[-1]],
+            youden_thresh[youden_index.argsort()[-1]],
+        )
+
+        holdout_result["y_predicted_holdout_for_youden_cutoff"] = np.where(
+            holdout_result["y_predicted_prob_holdout"][:, 1]
+            >= youden_thresh[youden_index.argsort()[-1]],
             1,
             0,
         )
