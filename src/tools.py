@@ -3,7 +3,7 @@ __contact__ = 'stan.he@sickkids.ca'
 __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
             '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11',
-            "2022-02-17", '2022-03-16', '2022-03-24']
+            "2022-02-17", '2022-03-16', '2022-03-24', '2022-04-13']
 
 """Gadgets for various tasks 
 """
@@ -292,7 +292,7 @@ def df_holdout_throughout(
 def feature_grouping_generator(df, group_type="four_timepoints"):
     """
     group_type: str, default: "four_timepoints"
-        other available options include "four_categories", "three_categories", "detailed_timepoints", "detailed_categories"
+        other available options include "four_categories", "three_categories", "modifiability_categories", "detailed_timepoints", "detailed_categories"
     -----------------------------------------------
     return: a dictionary and a dataframe for display
     """
@@ -387,6 +387,42 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
         )
 
         return detailed_categories_dict, detailed_categories_overview
+
+    elif group_type == "modifiability_categories":
+
+        modifiability_categories_dict = {}
+        modifiability_categories_mapping = {
+            "modifiable": "Home|Smoke|Study_Center",
+            "potentially_modifiable": "^Weight(?!.*_0m)|Antibiotic|^PSS_|^CESD_|delivery|10min|BF_",  # Contain Weight but exclude weight at 0m
+        }
+
+        for k, v in modifiability_categories_mapping.items():
+            modifiability_categories_dict[k] = set(
+                df.columns[df.columns.str.contains(v)]
+            )
+
+        # Put all of them together
+        current_set = set()
+        for i in modifiability_categories_dict.values():
+            current_set.update(i)
+
+        modifiability_categories_dict["unmodifiable"] = set(df.columns) - current_set
+
+        # Generate the dataframe for visualization
+        modifiability_categories_overview = pd.DataFrame(
+            [
+                modifiability_categories_dict.keys(),
+                modifiability_categories_dict.values(),
+            ],
+            index=["Category", "Features"],
+        ).T.set_index("Category")
+
+        print(
+            "The available keywords for grouped features are:",
+            modifiability_categories_dict.keys(),
+        )
+
+        return modifiability_categories_dict, modifiability_categories_overview
 
     elif group_type == "four_timepoints":
 
@@ -566,7 +602,8 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
             "four_categories |",
             "three_categories |",
             "detailed_timepoints |",
-            "detailed_categories",
+            "detailed_categories |",
+            "modifiability_categories",
         )
 
 
