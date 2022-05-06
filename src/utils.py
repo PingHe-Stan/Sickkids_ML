@@ -90,15 +90,16 @@ class ApgarTransformer(BaseEstimator, TransformerMixin):
 class BirthTransformer(BaseEstimator, TransformerMixin):
     """
     Categorize Mode_of_delivery into Two or Original groups
-    - 'Mode_of_delivery': - Binarized, or original categorical value
+    - 'birth_mode_delivery': - Binarized, Triplefied, or original categorical value
     Devise numeric feature to signal the severity of the pregnancy condition and birth situations
     - 'Prenatal_Mother_Condition': - Numeric, 0: 'Nausea','Bleeding', 'None', 1: Existing OR 0,1(of little consequences),2(of impact)
     - 'First_10min_Measure': - Numeric, 0: 'None', 1: 'Suction, Oxyg, Ventilation', 2: 'Mask', 4:'Intubation' OR 2: Intubation, 1: Mask, 0: Others
 
     Parameters:
     -----------------------
-    bimode_delivery: boolean, default True
-        Whether binarize the birth mode into Csection or not. If not detailed delivery mode will be used
+    birth_mode_delivery: int, or string, default 2
+        Whether binarize the birth mode into Csection or not, or triple them into vaginal, c-with labor, c-without labor.
+        If the input is not 2 or 3, then detailed delivery mode will be used
 
     binary_pregnancy_conditions: boolean, default False
         If true, use 0 to represent common pregnancy conditions: Bleeding,Nausea, such as use 1 to represent other medical conditions
@@ -116,12 +117,12 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
 
     def __init__(
             self,
-            bimode_delivery=False,
+            birth_mode_delivery=2,
             binary_pregnancy_conditions=False,
             signal_suction=False,
     ):
         super().__init__()
-        self.bimode_delivery = bimode_delivery
+        self.birth_mode_delivery = birth_mode_delivery
         self.binary_pregnancy_conditions = binary_pregnancy_conditions
         self.signal_suction = signal_suction
 
@@ -141,6 +142,19 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
             9.0: "Caesarean",
             11.0: "Vaginal",
         }
+
+        trimode_birth_dict = {
+            1.0: "Vaginal",
+            2.0: "Vaginal",
+            3.0: "Vaginal",
+            4.0: "Vaginal",
+            6.0: "Caesarean_without_Labor",
+            7.0: "Caesarean_with_Labor",
+            8.0: "Caesarean_with_Labor",
+            9.0: "Caesarean_without_Labor",
+            11.0: "Vaginal",
+        }
+
         multimode_birth_dict = {
             1.0: "Vaginal_Unassisted",
             2.0: "Vaginal_Assisted",
@@ -205,6 +219,9 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
                 pd.DataFrame.from_dict(
                     bimode_birth_dict, orient="index", columns=["Bimode_birth_engi"]
                 ),
+                pd.DataFrame.from_dict(
+                    trimode_birth_dict, orient="index", columns=["Triple_mode_birth_engi"]
+                ),
             ],
             axis=1,
         )
@@ -242,8 +259,10 @@ class BirthTransformer(BaseEstimator, TransformerMixin):
         dispdf(pregn_conditions_engioverview)
 
         if 'Mode_of_delivery' in X.columns:
-            if self.bimode_delivery:
+            if self.birth_mode_delivery == 2:
                 X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(bimode_birth_dict)
+            elif self.birth_mode_delivery == 3:
+                X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(trimode_birth_dict)
             else:
                 X["Mode_of_delivery"] = X["Mode_of_delivery"].replace(multimode_birth_dict)
 
