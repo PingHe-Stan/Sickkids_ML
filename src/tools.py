@@ -3,7 +3,7 @@ __contact__ = 'stan.he@sickkids.ca'
 __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
             '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11',
-            "2022-02-17", '2022-03-16', '2022-03-24', '2022-04-13', "2020-05-05"]
+            "2022-02-17", '2022-03-16', '2022-03-24', '2022-04-13', "2020-05-05", "2020-05-08"]
 
 """Gadgets for various tasks 
 """
@@ -987,13 +987,13 @@ def feature_directionality_extraction(
 
 # Convert a merged feature importance progession dataframe to the feature importance dataframe with directionality extracted from linear based estimator with visualization
 def feature_merged_directionality(
-        df_train_eval,
-        df_holdout,
-        ml_merged_features,
-        target_name="Asthma_Diagnosis_5yCLA",
-        estimator=LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced"),
-        threshold_for_selection=0,
-        directionality_coef_cutoff=0.08
+    df_train_eval,
+    df_holdout,
+    ml_merged_features,
+    target_name="Asthma_Diagnosis_5yCLA",
+    estimator=LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced"),
+    threshold_for_selection=0,
+    directionality_coef_cutoff=0.08,
 ):
     """
     params: feature_df_merged, calculated using feature_progression_merge() function
@@ -1014,21 +1014,21 @@ def feature_merged_directionality(
         feature_dict=feature_dict,
         target_name=target_name,
         estimator=estimator,
-        directionality_coef_cutoff=directionality_coef_cutoff
+        directionality_coef_cutoff=directionality_coef_cutoff,
     )
 
     # Create feature_value dataframe for merging
     ml_merged_features.index.rename("Features", inplace=True)
     feature_value = (
         ml_merged_features.reset_index()
-            .melt(
+        .melt(
             id_vars="Features",
             value_vars=list(ml_merged_features.columns.values),
             var_name="Time_Point",
             value_name="Importance_Value",
         )
-            .dropna()
-            .reset_index(drop=True)
+        .dropna()
+        .reset_index(drop=True)
     )
 
     # Merge extracted directionality (feature_sign) dataframe with feature_value dataframe
@@ -1037,15 +1037,18 @@ def feature_merged_directionality(
     )
 
     signed_fi_progression["Signed_Overall_Importance"] = (
-            signed_fi_progression.Importance_Value * signed_fi_progression.Importance_Sign
+        signed_fi_progression.Importance_Value * signed_fi_progression.Importance_Sign
     )
 
     merged_fi_directionality = (
         signed_fi_progression.pivot(
             index="Features", columns="Time_Point", values="Signed_Overall_Importance"
         )
-            .sort_values(by=list(ml_merged_features.columns.values), ascending=[0, 0, 0, 0])
-            .reindex(list(ml_merged_features.columns.values), axis=1)
+        .sort_values(
+            by=list(ml_merged_features.columns.values),
+            ascending=[False for i in range(len(ml_merged_features.columns))],
+        )
+        .reindex(list(ml_merged_features.columns.values), axis=1)
     )
 
     merged_feature_directionality = merged_fi_directionality.copy()
@@ -1637,25 +1640,44 @@ def ml_autofs_multiplepoints(
     res = {}
     prior_features = set()
     for i in timepoints_list:
-        res[i] = ml_feature_selection(
-            X=df_train_eval[ prior_features | time_variables_dict[i]],
-            y=df_train_eval["Asthma_Diagnosis_5yCLA"],
-            scalar=scalar,
-            cv=cv,
-            priori_k=priori_k,
-            scoring=scoring,
-            is_floating=True,
-            fixed_features=fixed_features,
-            precision_inspection_range=precision_inspection_range,
-            test_model_number=0,
-            clf=(estimator, estimator_name)
-        )
+        # Make the SFS more robust by adding a condition clause to check the total number of input features
+        if len(prior_features | time_variables_dict[i]) < priori_k:
+            new_k = len(prior_features | time_variables_dict[i])
+            res[i] = ml_feature_selection(
+                X=df_train_eval[ prior_features | time_variables_dict[i]],
+                y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+                scalar=scalar,
+                cv=cv,
+                priori_k=new_k,
+                scoring=scoring,
+                is_floating=True,
+                fixed_features=fixed_features,
+                precision_inspection_range=precision_inspection_range,
+                test_model_number=0,
+                clf=(estimator, estimator_name)
+            )
+            prior_features = set(res[i][1].index)
+        else:
+            res[i] = ml_feature_selection(
+                X=df_train_eval[ prior_features | time_variables_dict[i]],
+                y=df_train_eval["Asthma_Diagnosis_5yCLA"],
+                scalar=scalar,
+                cv=cv,
+                priori_k=priori_k,
+                scoring=scoring,
+                is_floating=True,
+                fixed_features=fixed_features,
+                precision_inspection_range=precision_inspection_range,
+                test_model_number=0,
+                clf=(estimator, estimator_name)
+            )
+            prior_features = set(res[i][1].index)
 
-        prior_features = set(res[i][1].index)
 
     # List feature selection at different time points
 
-    res_df = pd.concat([res[i][0] for i in timepoints_list], axis=1).T
+#    res_df = pd.concat([res[i][0] for i in timepoints_list], axis=1).T
+    res_df = pd.concat([res[i][0] for i in timepoints_list])
 
     res_df.index = res.keys()
 
