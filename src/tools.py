@@ -1533,7 +1533,7 @@ def ml_individual_res(
                     target_name="Asthma_Diagnosis_5yCLA",
                     estimator=ind_clf[0],
                     scalar=scalar,
-                    voting="hard",
+                    voting=None,
                     display=True,
                 )
             individual_res_dict[ind_name] = individual_res
