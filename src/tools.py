@@ -49,6 +49,8 @@ from sklearn.metrics import (
     precision_recall_fscore_support,
 )
 
+from sklearn.pipeline import Pipeline, make_pipeline, FeatureUnion
+
 from tqdm.notebook import tqdm
 from sklearn.utils import resample
 
@@ -69,7 +71,6 @@ from sklearn.inspection import permutation_importance
 from sklearn.model_selection import PredefinedSplit, StratifiedKFold, LeaveOneOut
 from mlxtend.evaluate import PredefinedHoldoutSplit
 from mlxtend.feature_selection import SequentialFeatureSelector as SFS
-
 
 # Load more variables to existing xlsx
 def load_child_with_more(
@@ -656,7 +657,7 @@ def ml_res_visualization(
         n_estimators=100,
         class_weight="balanced",
         max_depth=3,
-        max_features=5,
+        max_features='auto', #Previous is 5
         random_state=2021,
     )
 
@@ -1163,7 +1164,7 @@ def ml_ensemble_res(
                 n_estimators=100,
                 class_weight="balanced",
                 max_depth=3,
-                max_features=5,
+                max_features='auto', #Previous is 5
                 random_state=2021,
             ),
         ),
@@ -1430,7 +1431,7 @@ def ml_individual_res(
         n_estimators=100,
         class_weight="balanced",
         max_depth=3,
-        max_features=5,
+        max_features='auto', #Previous is 5
         random_state=2021,
     )
 
@@ -1843,7 +1844,7 @@ def ml_feature_selection(
         n_estimators=100,
         class_weight="balanced",
         max_depth=3,
-        max_features=5,
+        max_features='auto', #Previous is 5
         random_state=2021,
     )
 
@@ -2228,6 +2229,247 @@ def model_metrics_bootstrapstats(
 
     return res_metrics, res_holdout
 
+def ml_process_run(  # Subject and Features Control
+    exclude_inconsistent_asthma=True,
+    exclude_repetitive_features=True,
+    repetitive_features=(
+        {
+            "Asthma_Father",
+            "Asthma_Mother",
+            "BF_3m",
+            "BF_6m",
+            "Parental_Asthma",
+            "Weight_0m",
+            "Weight_12m",
+            "Weight_36m",
+            "Weight_3m",
+            "Weight_60m",
+        }
+        | {"Dad_Food", "Dad_Inhalant", "Mom_Food", "Mom_Inhalant"}
+        # | set(
+        #     df_child.columns[df_child.columns.str.contains("Child_Food|Child_Inhalant")]
+        # )
+    ),
+    # Preprocessing
+    apgar_engineer="Ordinal",
+    birth_mode=2,
+    birth_binary_pregnancy=True,
+    birth_signal_suction=True,
+    log_col=["Stay_Duration_Hospital"],
+    pss_discretize="Ordinal",
+    NaN_imputation_strategy="mode",
+    imputing_correlated_subset="MissForest",
+    indicator_threshold=500,
+    collinear_level=0.97,
+    # Dataset Split
+    holdout_random_state=100,
+    ingredient_persist=17,
+    ingredient_transient=0,
+    ingredient_emerged=3,
+    ingredient_no_asthma=250,
+    include_dust=False,
+    treat_possible_as_3yCLA={2: np.nan},
+    treat_possible_as_5yCLA={2: np.nan},
+    # ML Process
+    coef_thresh=0.1,
+    featimp_thresh=0.05,
+    permutation_thresh=0.01,
+    type_of_categories="three_categories",
+):
+
+    ##########Step 1 Preprocessing###############
+
+    df_child = pd.read_excel(
+        "../output/CHILD_with_addon.xlsx", index_col="Subject_Number"
+    )
+
+    if exclude_repetitive_features:
+        df_child_selected = df_child.copy()
+        df_child_selected.drop(columns=repetitive_features, inplace=True)
+    else:
+        df_child_selected = df_child.copy()
+
+    if exclude_inconsistent_asthma:
+        # Extract inconsistent subject number
+        subject_to_drop_father_na = set(
+            df_child.Father_Asthma[df_child.Father_Asthma.isna()].index
+        )
+        df_differences = df_child[
+            ["Asthma_Mother", "Mother_Asthma", "Asthma_Father", "Father_Asthma"]
+        ].copy()
+        df_differences.fillna("8888", inplace=True)
+        subject_to_drop_asthma_discrepancy = set(
+            pd.concat(
+                (
+                    df_differences[
+                        df_differences.Father_Asthma != df_differences.Asthma_Father
+                    ],
+                    df_differences[
+                        df_differences.Mother_Asthma != df_differences.Asthma_Mother
+                    ],
+                )
+            ).index
+        )
+        subject_to_exclude = (
+            subject_to_drop_asthma_discrepancy | subject_to_drop_father_na
+        )
+
+        remaining_subject = set(df_child_selected.index) - subject_to_exclude
+        print("The original cohort size is:", len(df_child_selected.index))
+        print(
+            "The excluded subject size due to parental asthma inconsistency is:",
+            len(subject_to_exclude),
+        )
+        print("The leftover cohort size for train and test is:", len(remaining_subject))
+
+        df_child_selected_screened = df_child_selected.loc[remaining_subject, :]
+    else:
+        df_child_selected_screened = df_child_selected.copy()
+
+    preprocessor = Pipeline(
+        steps=[
+            ("apgar", ApgarTransformer(engineer_type=apgar_engineer)),
+            (
+                "birth",
+                BirthTransformer(
+                    birth_mode_delivery=birth_mode,
+                    binary_pregnancy_conditions=birth_binary_pregnancy,
+                    signal_suction=birth_signal_suction,
+                ),
+            ),
+            ("log1p", Log1pTransformer(cols=log_col),),
+            (
+                "resp",
+                RespiratoryTransformer(first_18m_divide=True, minimal_value_presence=1),
+            ),
+            ("pss", DiscretizePSS(discretize=pss_discretize)),
+            (
+                "catimp",
+                CatNaNImputer(
+                    NaN_signal_thresh=indicator_threshold,
+                    NaN_imputation_strategy=NaN_imputation_strategy,
+                ),
+            ),
+            (
+                "numimp",
+                NumNaNimputer(
+                    add_indicator_threshold=indicator_threshold,
+                    imputing_correlated_subset=imputing_correlated_subset,
+                ),
+            ),
+            ("collinrem", CollinearRemover(collinear_level=collinear_level)),
+        ]
+    )
+    preprocessor
+
+    ##########Step 2 Dataset Split###############
+
+    df, a, b = df_holdout_throughout(
+        df_child_selected_screened,
+        include_dust=False,
+        treat_possible_as_3yCLA=treat_possible_as_3yCLA,  # Total Number of Persistent will be perserved if 3yCLA possible is treated as 1 for our algorithm, total number of
+        # persistent asthma will be less if 3yCLA possible is ignored as there is 2 to 1 from 3yCLA to 5yCLA.
+        treat_possible_as_5yCLA=treat_possible_as_5yCLA,  # Possible will be dropped for modelling
+        holdout_random_state=holdout_random_state,
+        ingredient_persist=ingredient_persist,
+        ingredient_transient=ingredient_transient,
+        ingredient_emerged=ingredient_emerged,
+        ingredient_no_asthma=ingredient_no_asthma,
+    )
+
+    ##########Step 3 Transform###############
+    preprocessor.fit_transform(df)
+
+    four_time_dict, _ = feature_grouping_generator(df, group_type="four_timepoints")
+    five_time_dict, _ = feature_grouping_generator(df, group_type="five_timepoints")
+    three_type_dict, _ = feature_grouping_generator(df, group_type="three_categories")
+    four_type_dict, _ = feature_grouping_generator(df, group_type="four_categories")
+
+    # Generate the df for model building
+    df_with_target_selected_screened = df[
+        five_time_dict["all_five_timepoints"] | {"Asthma_Diagnosis_5yCLA"}
+    ].copy()
+
+    # Df for train & Eval and Holdout
+    df_complete_selected_screened = df_with_target_selected_screened.loc[
+        a + b, :
+    ].copy()
+    df_train_eval_selected_screened = df_with_target_selected_screened.loc[a, :].copy()
+    df_holdout_selected_screened = df_with_target_selected_screened.loc[b, :].copy()
+
+    df_train_eval_selected_screened.reset_index(drop=True, inplace=True)
+    df_holdout_selected_screened.reset_index(drop=True, inplace=True)
+
+    ##########Step 4 ML Processing###############
+
+    ml_res_final_selected_screened = ml_res_visualization(
+        df_train_eval_selected_screened,
+        df_holdout_selected_screened,
+        five_time_dict,
+        scalar=MinMaxScaler(),
+        cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
+        priori_k=25,
+        precision_inspection_range=0.005,
+        fixed_features=None,
+        scoring="average_precision",
+    )
+
+    # Merged Feature
+    ml_final_features_selected_screened = feature_progression_merge(
+        ml_res_final_selected_screened,
+        ml_list=["lr", "rf", "xgb", "svc", "dt"],
+        coef_thresh=0.1,
+        featimp_thresh=0.05,
+        permutation_thresh=0.01,
+        how="sum",
+        normalize=True,
+    )
+
+    ml_ind_res_selected_screened = ml_individual_res(
+        df_train_eval_selected_screened,
+        df_holdout_selected_screened,
+        ml_res_final_selected_screened,  # Contains the auto-selected features for different models at different timepoints
+        scalar=MinMaxScaler(),
+        ci_bootstrap=True,
+        bootstrap_replace=True,
+        bootstrap_iterations=30,
+        subset_percentage=1,
+    )
+
+    ml_ens_res_bt_true_selected_screened = ml_ensemble_res(
+        df_train_eval_selected_screened,
+        df_holdout_selected_screened,
+        ml_final_features_selected_screened,
+        scalar=MinMaxScaler(),
+        threshold_for_selection=0.1,
+        ci_bootstrap=True,
+        bootstrap_replace=True,
+        bootstrap_iterations=30,
+        subset_percentage=1,
+    )
+
+    feature_with_direction_selected_screened = feature_merged_directionality(
+        df_train_eval_selected_screened,
+        df_holdout_selected_screened,
+        ml_final_features_selected_screened,
+        target_name="Asthma_Diagnosis_5yCLA",
+        estimator=LogisticRegression(C=0.02, solver="lbfgs", class_weight="balanced"),
+        threshold_for_selection=0,
+    )
+
+    df_feature_for_vis_selected_screened = feature_category_dataframe(
+        df, ml_final_features_selected_screened, type_of_categories="three_categories",
+    )
+
+    return (
+        ml_res_final_selected_screened,
+        ml_ind_res_selected_screened,
+        ml_ens_res_bt_true_selected_screened,
+        feature_with_direction_selected_screened,
+        df_feature_for_vis_selected_screened,
+    )
+
+
 
 # An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
 # An drastic updating of the version of ml_run() which has less, cleaner code and more flexibility
@@ -2311,7 +2553,7 @@ def df_ml_run(
         n_estimators=100,
         class_weight="balanced",
         max_depth=3,
-        max_features=5,
+        max_features='auto', #Previous is 5
         random_state=2021,
     )
 
@@ -3661,7 +3903,7 @@ def ml_tuned_run(df_train_eval,
         n_estimators=100,
         class_weight="balanced",
         max_depth=3,
-        max_features=5,
+        max_features='auto', # Previous is 5
         random_state=2021,
     )
 
