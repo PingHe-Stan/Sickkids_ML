@@ -3,7 +3,8 @@ __contact__ = 'stan.he@sickkids.ca'
 __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
             '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11',
-            "2022-02-17", '2022-03-16', '2022-03-24', '2022-04-13', "2020-05-05", "2020-05-08"]
+            "2022-02-17", '2022-03-16', '2022-03-24', '2022-04-13', "2020-05-05",
+            "2020-05-08", "2020-05-14"]
 
 """Gadgets for various tasks 
 """
@@ -577,6 +578,69 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
             | detailed_categories_dict["10_resp"]
             | detailed_categories_dict["12_childspt"]
             | detailed_categories_dict["15_CLA"]
+            | set(
+                df.columns[
+                    df.columns.str.contains(
+                        "Mode_of_delivery|Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Jaundice_Birth"
+                    )
+                ]
+            )
+        ) - (
+            {"Wheeze_Father", "Wheeze_Mother"}
+            | detailed_timepoints_dict["48m"]
+            | detailed_timepoints_dict["60m"]
+            | set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+        )  # Mode_of_delivery from env to clinic Advised from integration meeting Mar 10,2022
+
+        three_categories_dict["environmental"] = (
+            detailed_categories_dict["2_mother_condition"]
+            | detailed_categories_dict["4_breastfeeding"]
+            | detailed_categories_dict["5_home"]
+            | detailed_categories_dict["8_smoke"]
+            | detailed_categories_dict["11_antibiotic"]
+            | detailed_categories_dict[
+                "6_mental"
+            ]  # Advised from integration meeting Mar 10,2022
+            | set(
+                df.columns[
+                    df.columns.str.contains(
+                        "Prenatal_Mother_Condition|Analgesics_usage_delivery|Anesthetic_delivery|Study_Center|No_of_Pregnancy"
+                    )
+                ]
+            )
+        )  # Study_Center & No_of_Pregnancy from other to env Advised from integration meeting Mar 10,2022
+
+        # Generate the dataframe for visualization
+        three_categories_overview = pd.DataFrame(
+            [three_categories_dict.keys(), three_categories_dict.values()],
+            index=["Category", "Features"],
+        ).T.set_index("Category")
+
+        print(
+            "The available keywords for grouped features are:",
+            three_categories_dict.keys(),
+        )
+
+        return three_categories_dict, three_categories_overview
+
+    elif group_type == "three_categories_paper":
+
+        three_categories_dict = {}
+
+        three_categories_dict["parental"] = (
+            detailed_categories_dict["7_parental"]
+        ) - {
+            "Prenatal_Mother_Condition"
+        }  # Sex/Gender from clinic to genetic Advised from integration meeting Mar 10,2022
+
+        three_categories_dict["clinical"] = (
+            detailed_categories_dict["9_wheeze"]
+            | detailed_categories_dict["1_weight"]
+            | detailed_categories_dict["3_first10min"]
+            | detailed_categories_dict["10_resp"]
+            | detailed_categories_dict["12_childspt"]
+            | detailed_categories_dict["15_CLA"]
+            | set(df.columns[df.columns.str.contains("Child_Ethnicity|Sex")])
             | set(
                 df.columns[
                     df.columns.str.contains(
@@ -2229,7 +2293,9 @@ def model_metrics_bootstrapstats(
 
     return res_metrics, res_holdout
 
+# Quick Run of the ML Pipeline with different parameters
 def ml_process_run(  # Subject and Features Control
+    df_child, # Merged Source data with NaN restored as NaN
     exclude_inconsistent_asthma=True,
     exclude_repetitive_features=True,
     repetitive_features=(
@@ -2276,12 +2342,45 @@ def ml_process_run(  # Subject and Features Control
     permutation_thresh=0.01,
     type_of_categories="three_categories",
 ):
+    """
+    :param df_child: Raw Dataset with NaN restored as NaN rather than 888,8888,999,9 etc.
+    :param exclude_inconsistent_asthma: Whether or Not to Screen-out certain subjects with inconsistent parental asthma history
+    :param exclude_repetitive_features: Whether or Not to Remove repetitive or inclusive features
+    :param repetitive_features: List of features to drop
+    :param apgar_engineer: How to engineer apgar score at birth
+    :param birth_mode: How to engineer birth mode
+    :param birth_binary_pregnancy: How to engineer pregnancy conditions
+    :param birth_signal_suction: How to engineer first ten mins measures
+    :param log_col: List of features that will be used its log form instead
+    :param pss_discretize: How to engineer mental health score
+    :param NaN_imputation_strategy: How to treat NaN for binary features
+    :param imputing_correlated_subset: How to treat NaN for correlated features
+    :param indicator_threshold: Threshold to create an additional column to indicate the missingness of features
+    :param collinear_level: Maximal acceptable collinearity of features
+    :param holdout_random_state: Randomness number for holdout split shuffle
+    :param ingredient_persist: No. of Persistent asthma in holdout dataset
+    :param ingredient_transient: No. of Transient asthma in holdout dataset
+    :param ingredient_emerged: No. of Emerged asthma in holdout dataset
+    :param ingredient_no_asthma: No. of Non asthmatic in holdout dataset
+    :param include_dust: Whether or Not to include dust phthalates data in the model
+    :param treat_possible_as_3yCLA: How to treat possible asthma for 3 year clinical assessment
+    :param treat_possible_as_5yCLA: How to treat possible asthma for 3 year clinical assessment
+    :param coef_thresh: When combining feature importance of linear models, the threshold of features to be considered.
+    :param featimp_thresh: When combining feature importance of tree-based models, the threshold of features to be considered.
+    :param permutation_thresh: When combining feature importance of other models, the threshold of features to be considered.
+    :param type_of_categories: When generating the feature importance
+    :return:  ml_res_final,
+        ml_ind_res,
+        ml_ens_res,
+        feature_with_direction,
+        dataframe_for_feature_progression,
+    """
 
     ##########Step 1 Preprocessing###############
 
-    df_child = pd.read_excel(
-        "../output/CHILD_with_addon.xlsx", index_col="Subject_Number"
-    )
+    # df_child = pd.read_excel(
+    #     "../output/CHILD_with_addon.xlsx", index_col="Subject_Number"
+    # )
 
     if exclude_repetitive_features:
         df_child_selected = df_child.copy()
@@ -2366,7 +2465,7 @@ def ml_process_run(  # Subject and Features Control
 
     df, a, b = df_holdout_throughout(
         df_child_selected_screened,
-        include_dust=False,
+        include_dust=include_dust,
         treat_possible_as_3yCLA=treat_possible_as_3yCLA,  # Total Number of Persistent will be perserved if 3yCLA possible is treated as 1 for our algorithm, total number of
         # persistent asthma will be less if 3yCLA possible is ignored as there is 2 to 1 from 3yCLA to 5yCLA.
         treat_possible_as_5yCLA=treat_possible_as_5yCLA,  # Possible will be dropped for modelling
@@ -2418,9 +2517,9 @@ def ml_process_run(  # Subject and Features Control
     ml_final_features_selected_screened = feature_progression_merge(
         ml_res_final_selected_screened,
         ml_list=["lr", "rf", "xgb", "svc", "dt"],
-        coef_thresh=0.1,
-        featimp_thresh=0.05,
-        permutation_thresh=0.01,
+        coef_thresh=coef_thresh,
+        featimp_thresh=featimp_thresh,
+        permutation_thresh=permutation_thresh,
         how="sum",
         normalize=True,
     )
@@ -2458,7 +2557,7 @@ def ml_process_run(  # Subject and Features Control
     )
 
     df_feature_for_vis_selected_screened = feature_category_dataframe(
-        df, ml_final_features_selected_screened, type_of_categories="three_categories",
+        df, ml_final_features_selected_screened, type_of_categories=type_of_categories,
     )
 
     return (
