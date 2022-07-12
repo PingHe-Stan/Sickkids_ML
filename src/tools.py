@@ -4,7 +4,7 @@ __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
             '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11',
             "2022-02-17", '2022-03-16', '2022-03-24', '2022-04-13', "2020-05-05",
-            "2020-05-08", "2020-05-14"]
+            "2020-05-08", "2020-05-14", '2022-07-06', '2022-07-08', "2020-07-11"]
 
 """Gadgets for various tasks 
 """
@@ -13,6 +13,7 @@ import pandas as pd
 import random
 import matplotlib.pyplot as plt
 import seaborn as sns
+import scipy.stats as st
 from collections import defaultdict
 import pingouin as pg  # Perform statistical testing
 import plotly.graph_objects as go
@@ -290,10 +291,11 @@ def df_holdout_throughout(
 
     return df_child_ml, rest_index, holdout_index
 
+
 def feature_grouping_generator(df, group_type="four_timepoints"):
     """
     group_type: str, default: "four_timepoints"
-        other available options include "five_timepoints", "four_categories", "three_categories", "modifiability_categories", "detailed_timepoints", "detailed_categories"
+        other available options include "five_timepoints","six_timepoints", "four_categories", "three_categories", "modifiability_categories", "detailed_timepoints", "detailed_categories"
     -----------------------------------------------
     return: a dictionary and a dataframe for display
     """
@@ -343,7 +345,8 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
         "6_mental": "^PSS_|^CESD_",
         "7_parental": "Mother|Father|Dad|Mom|Parental",
         "8_smoke": "Smoke",
-        "9_wheeze": "Wheeze(?!.*CLA)|^Wheeze(?!.*Moth)|^Wheeze(?!.*Fath)",  # Contain wheeze but exclude *CLA, *Father, *Mother
+        "9_wheeze": "Wheeze(?!.*CLA)|^Wheeze(?!.*Moth)|^Wheeze(?!.*Fath)",
+        # Contain wheeze but exclude *CLA, *Father, *Mother
         "10_resp": "Respiratory|^RI",
         "11_antibiotic": "Antibiotic",
         "12_childspt": "Child_Inhalant|Child_Atopy|Child_Food",
@@ -394,7 +397,8 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
         modifiability_categories_dict = {}
         modifiability_categories_mapping = {
             "modifiable": "Home|Smoke|Study_Center",
-            "potentially_modifiable": "^Weight(?!.*_0m)|Antibiotic|^PSS_|^CESD_|delivery|10min|BF_",  # Contain Weight but exclude weight at 0m
+            "potentially_modifiable": "^Weight(?!.*_0m)|Antibiotic|^PSS_|^CESD_|delivery|10min|BF_",
+            # Contain Weight but exclude weight at 0m
         }
 
         for k, v in modifiability_categories_mapping.items():
@@ -431,21 +435,21 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
 
         four_timepoints_dict["at_birth"] = detailed_timepoints_dict["at_birth"]
         four_timepoints_dict["6_months"] = (
-            detailed_timepoints_dict["3m"] | detailed_timepoints_dict["6m"]
+                detailed_timepoints_dict["3m"] | detailed_timepoints_dict["6m"]
         )
         four_timepoints_dict["1_year"] = detailed_timepoints_dict["12m"]
         four_timepoints_dict["3_years"] = (
-            detailed_timepoints_dict["18m"]
-            | detailed_timepoints_dict["24m"]
-            | detailed_timepoints_dict["30m"]
-            | detailed_timepoints_dict["36m"]
-        ) - set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+                                                  detailed_timepoints_dict["18m"]
+                                                  | detailed_timepoints_dict["24m"]
+                                                  | detailed_timepoints_dict["30m"]
+                                                  | detailed_timepoints_dict["36m"]
+                                          ) - set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
 
         four_timepoints_dict["all_four_timepoints"] = (
-            four_timepoints_dict["at_birth"]
-            | four_timepoints_dict["6_months"]
-            | four_timepoints_dict["1_year"]
-            | four_timepoints_dict["3_years"]
+                four_timepoints_dict["at_birth"]
+                | four_timepoints_dict["6_months"]
+                | four_timepoints_dict["1_year"]
+                | four_timepoints_dict["3_years"]
         )
 
         # Generate the dataframe for visualization
@@ -467,22 +471,22 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
 
         five_timepoints_dict["at_birth"] = detailed_timepoints_dict["at_birth"]
         five_timepoints_dict["6_months"] = (
-            detailed_timepoints_dict["3m"] | detailed_timepoints_dict["6m"]
+                detailed_timepoints_dict["3m"] | detailed_timepoints_dict["6m"]
         )
         five_timepoints_dict["1_year"] = detailed_timepoints_dict["12m"]
         five_timepoints_dict["2_years"] = (
-            detailed_timepoints_dict["18m"] | detailed_timepoints_dict["24m"]
+                detailed_timepoints_dict["18m"] | detailed_timepoints_dict["24m"]
         )
         five_timepoints_dict["3_years"] = (
-            detailed_timepoints_dict["30m"] | detailed_timepoints_dict["36m"]
-        ) - set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+                                                  detailed_timepoints_dict["30m"] | detailed_timepoints_dict["36m"]
+                                          ) - set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
 
         five_timepoints_dict["all_five_timepoints"] = (
-            five_timepoints_dict["at_birth"]
-            | five_timepoints_dict["6_months"]
-            | five_timepoints_dict["1_year"]
-            | five_timepoints_dict["2_years"]
-            | five_timepoints_dict["3_years"]
+                five_timepoints_dict["at_birth"]
+                | five_timepoints_dict["6_months"]
+                | five_timepoints_dict["1_year"]
+                | five_timepoints_dict["2_years"]
+                | five_timepoints_dict["3_years"]
         )
 
         # Generate the dataframe for visualization
@@ -498,49 +502,89 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
 
         return five_timepoints_dict, five_timepoints_overview
 
+    elif group_type == "six_timepoints":
+
+        six_timepoints_dict = {}
+
+        six_timepoints_dict["at_birth"] = detailed_timepoints_dict["at_birth"]
+        six_timepoints_dict["6_months"] = (
+                detailed_timepoints_dict["3m"] | detailed_timepoints_dict["6m"]
+        )
+        six_timepoints_dict["1_year"] = detailed_timepoints_dict["12m"]
+        six_timepoints_dict["2_years"] = (
+                detailed_timepoints_dict["18m"] | detailed_timepoints_dict["24m"]
+        )
+        six_timepoints_dict["3_years"] = (
+                                            detailed_timepoints_dict["30m"] | detailed_timepoints_dict["36m"]
+                                         ) - set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+
+        six_timepoints_dict["4_years"] = detailed_timepoints_dict["48m"]
+
+        six_timepoints_dict["all_six_timepoints"] = (
+                six_timepoints_dict["at_birth"]
+                | six_timepoints_dict["6_months"]
+                | six_timepoints_dict["1_year"]
+                | six_timepoints_dict["2_years"]
+                | six_timepoints_dict["3_years"]
+                | six_timepoints_dict["4_years"]
+        )
+
+        # Generate the dataframe for visualization
+        six_timepoints_overview = pd.DataFrame(
+            [six_timepoints_dict.keys(), six_timepoints_dict.values()],
+            index=["Time_Point", "Features"],
+        ).T.set_index("Time_Point")
+
+        print(
+            "The available keywords for grouped features are:",
+            six_timepoints_dict.keys(),
+        )
+
+        return six_timepoints_dict, six_timepoints_overview
+
     elif group_type == "four_categories":
 
         four_categories_dict = {}
 
         four_categories_dict["genetic"] = (
-            detailed_categories_dict["7_parental"]
-            | set(df.columns[df.columns.str.contains("Child_Ethnicity")])
-        ) - {"Prenatal_Mother_Condition"}
+                                                  detailed_categories_dict["7_parental"]
+                                                  | set(df.columns[df.columns.str.contains("Child_Ethnicity")])
+                                          ) - {"Prenatal_Mother_Condition"}
 
         four_categories_dict["clinic"] = (
-            detailed_categories_dict["9_wheeze"]
-            | detailed_categories_dict["1_weight"]
-            | detailed_categories_dict["3_first10min"]
-            | detailed_categories_dict["10_resp"]
-            | detailed_categories_dict["12_childspt"]
-            | detailed_categories_dict["15_CLA"]
-            | set(
-                df.columns[
-                    df.columns.str.contains(
-                        "Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Sex|Jaundice_Birth"
-                    )
-                ]
-            )
-        ) - (
-            {"Wheeze_Father", "Wheeze_Mother"}
-            | detailed_timepoints_dict["48m"]
-            | detailed_timepoints_dict["60m"]
-            | set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
-        )
+                                                 detailed_categories_dict["9_wheeze"]
+                                                 | detailed_categories_dict["1_weight"]
+                                                 | detailed_categories_dict["3_first10min"]
+                                                 | detailed_categories_dict["10_resp"]
+                                                 | detailed_categories_dict["12_childspt"]
+                                                 | detailed_categories_dict["15_CLA"]
+                                                 | set(
+                                             df.columns[
+                                                 df.columns.str.contains(
+                                                     "Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Sex|Jaundice_Birth"
+                                                 )
+                                             ]
+                                         )
+                                         ) - (
+                                                 {"Wheeze_Father", "Wheeze_Mother"}
+                                                 | detailed_timepoints_dict["48m"]
+                                                 | detailed_timepoints_dict["60m"]
+                                                 | set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+                                         )
 
         four_categories_dict["environmental"] = (
-            detailed_categories_dict["2_mother_condition"]
-            | detailed_categories_dict["4_breastfeeding"]
-            | detailed_categories_dict["5_home"]
-            | detailed_categories_dict["8_smoke"]
-            | detailed_categories_dict["11_antibiotic"]
-            | set(
-                df.columns[
-                    df.columns.str.contains(
-                        "Mode_of_delivery|Prenatal_Mother_Condition|Analgesics_usage_delivery|Anesthetic_delivery"
-                    )
-                ]
-            )
+                detailed_categories_dict["2_mother_condition"]
+                | detailed_categories_dict["4_breastfeeding"]
+                | detailed_categories_dict["5_home"]
+                | detailed_categories_dict["8_smoke"]
+                | detailed_categories_dict["11_antibiotic"]
+                | set(
+            df.columns[
+                df.columns.str.contains(
+                    "Mode_of_delivery|Prenatal_Mother_Condition|Analgesics_usage_delivery|Anesthetic_delivery"
+                )
+            ]
+        )
         )
 
         four_categories_dict["other"] = detailed_categories_dict["6_mental"] | set(
@@ -565,49 +609,49 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
         three_categories_dict = {}
 
         three_categories_dict["genetic"] = (
-            detailed_categories_dict["7_parental"]
-            | set(df.columns[df.columns.str.contains("Child_Ethnicity|Sex")])
-        ) - {
-            "Prenatal_Mother_Condition"
-        }  # Sex/Gender from clinic to genetic Advised from integration meeting Mar 10,2022
+                                                   detailed_categories_dict["7_parental"]
+                                                   | set(df.columns[df.columns.str.contains("Child_Ethnicity|Sex")])
+                                           ) - {
+                                               "Prenatal_Mother_Condition"
+                                           }  # Sex/Gender from clinic to genetic Advised from integration meeting Mar 10,2022
 
         three_categories_dict["clinic"] = (
-            detailed_categories_dict["9_wheeze"]
-            | detailed_categories_dict["1_weight"]
-            | detailed_categories_dict["3_first10min"]
-            | detailed_categories_dict["10_resp"]
-            | detailed_categories_dict["12_childspt"]
-            | detailed_categories_dict["15_CLA"]
-            | set(
-                df.columns[
-                    df.columns.str.contains(
-                        "Mode_of_delivery|Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Jaundice_Birth"
-                    )
-                ]
-            )
-        ) - (
-            {"Wheeze_Father", "Wheeze_Mother"}
-            | detailed_timepoints_dict["48m"]
-            | detailed_timepoints_dict["60m"]
-            | set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
-        )  # Mode_of_delivery from env to clinic Advised from integration meeting Mar 10,2022
+                                                  detailed_categories_dict["9_wheeze"]
+                                                  | detailed_categories_dict["1_weight"]
+                                                  | detailed_categories_dict["3_first10min"]
+                                                  | detailed_categories_dict["10_resp"]
+                                                  | detailed_categories_dict["12_childspt"]
+                                                  | detailed_categories_dict["15_CLA"]
+                                                  | set(
+                                              df.columns[
+                                                  df.columns.str.contains(
+                                                      "Mode_of_delivery|Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Jaundice_Birth"
+                                                  )
+                                              ]
+                                          )
+                                          ) - (
+                                                  {"Wheeze_Father", "Wheeze_Mother"}
+                                                  | detailed_timepoints_dict["48m"]
+                                                  | detailed_timepoints_dict["60m"]
+                                                  | set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+                                          )  # Mode_of_delivery from env to clinic Advised from integration meeting Mar 10,2022
 
         three_categories_dict["environmental"] = (
-            detailed_categories_dict["2_mother_condition"]
-            | detailed_categories_dict["4_breastfeeding"]
-            | detailed_categories_dict["5_home"]
-            | detailed_categories_dict["8_smoke"]
-            | detailed_categories_dict["11_antibiotic"]
-            | detailed_categories_dict[
-                "6_mental"
-            ]  # Advised from integration meeting Mar 10,2022
-            | set(
-                df.columns[
-                    df.columns.str.contains(
-                        "Prenatal_Mother_Condition|Analgesics_usage_delivery|Anesthetic_delivery|Study_Center|No_of_Pregnancy"
-                    )
-                ]
-            )
+                detailed_categories_dict["2_mother_condition"]
+                | detailed_categories_dict["4_breastfeeding"]
+                | detailed_categories_dict["5_home"]
+                | detailed_categories_dict["8_smoke"]
+                | detailed_categories_dict["11_antibiotic"]
+                | detailed_categories_dict[
+                    "6_mental"
+                ]  # Advised from integration meeting Mar 10,2022
+                | set(
+            df.columns[
+                df.columns.str.contains(
+                    "Prenatal_Mother_Condition|Analgesics_usage_delivery|Anesthetic_delivery|Study_Center|No_of_Pregnancy"
+                )
+            ]
+        )
         )  # Study_Center & No_of_Pregnancy from other to env Advised from integration meeting Mar 10,2022
 
         # Generate the dataframe for visualization
@@ -628,49 +672,49 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
         three_categories_dict = {}
 
         three_categories_dict["parental"] = (
-            detailed_categories_dict["7_parental"]
-        ) - {
-            "Prenatal_Mother_Condition"
-        }  # Sex/Gender from clinic to genetic Advised from integration meeting Mar 10,2022
+                                                detailed_categories_dict["7_parental"]
+                                            ) - {
+                                                "Prenatal_Mother_Condition"
+                                            }  # Sex/Gender from clinic to genetic Advised from integration meeting Mar 10,2022
 
         three_categories_dict["clinical"] = (
-            detailed_categories_dict["9_wheeze"]
-            | detailed_categories_dict["1_weight"]
-            | detailed_categories_dict["3_first10min"]
-            | detailed_categories_dict["10_resp"]
-            | detailed_categories_dict["12_childspt"]
-            | detailed_categories_dict["15_CLA"]
-            | set(df.columns[df.columns.str.contains("Child_Ethnicity|Sex")])
-            | set(
-                df.columns[
-                    df.columns.str.contains(
-                        "Mode_of_delivery|Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Jaundice_Birth"
-                    )
-                ]
-            )
-        ) - (
-            {"Wheeze_Father", "Wheeze_Mother"}
-            | detailed_timepoints_dict["48m"]
-            | detailed_timepoints_dict["60m"]
-            | set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
-        )  # Mode_of_delivery from env to clinic Advised from integration meeting Mar 10,2022
+                                                    detailed_categories_dict["9_wheeze"]
+                                                    | detailed_categories_dict["1_weight"]
+                                                    | detailed_categories_dict["3_first10min"]
+                                                    | detailed_categories_dict["10_resp"]
+                                                    | detailed_categories_dict["12_childspt"]
+                                                    | detailed_categories_dict["15_CLA"]
+                                                    | set(df.columns[df.columns.str.contains("Child_Ethnicity|Sex")])
+                                                    | set(
+                                                df.columns[
+                                                    df.columns.str.contains(
+                                                        "Mode_of_delivery|Apgar_Score|Gest_Days|Stay_Duration|Complications_Birth|Jaundice_Birth"
+                                                    )
+                                                ]
+                                            )
+                                            ) - (
+                                                    {"Wheeze_Father", "Wheeze_Mother"}
+                                                    | detailed_timepoints_dict["48m"]
+                                                    | detailed_timepoints_dict["60m"]
+                                                    | set(df.columns[df.columns.str.contains("Asthma.*yCLA")])
+                                            )  # Mode_of_delivery from env to clinic Advised from integration meeting Mar 10,2022
 
         three_categories_dict["environmental"] = (
-            detailed_categories_dict["2_mother_condition"]
-            | detailed_categories_dict["4_breastfeeding"]
-            | detailed_categories_dict["5_home"]
-            | detailed_categories_dict["8_smoke"]
-            | detailed_categories_dict["11_antibiotic"]
-            | detailed_categories_dict[
-                "6_mental"
-            ]  # Advised from integration meeting Mar 10,2022
-            | set(
-                df.columns[
-                    df.columns.str.contains(
-                        "Prenatal_Mother_Condition|Analgesics_usage_delivery|Anesthetic_delivery|Study_Center|No_of_Pregnancy"
-                    )
-                ]
-            )
+                detailed_categories_dict["2_mother_condition"]
+                | detailed_categories_dict["4_breastfeeding"]
+                | detailed_categories_dict["5_home"]
+                | detailed_categories_dict["8_smoke"]
+                | detailed_categories_dict["11_antibiotic"]
+                | detailed_categories_dict[
+                    "6_mental"
+                ]  # Advised from integration meeting Mar 10,2022
+                | set(
+            df.columns[
+                df.columns.str.contains(
+                    "Prenatal_Mother_Condition|Analgesics_usage_delivery|Anesthetic_delivery|Study_Center|No_of_Pregnancy"
+                )
+            ]
+        )
         )  # Study_Center & No_of_Pregnancy from other to env Advised from integration meeting Mar 10,2022
 
         # Generate the dataframe for visualization
@@ -691,8 +735,9 @@ def feature_grouping_generator(df, group_type="four_timepoints"):
         print(
             "four_timepoints |",
             "five_timepoints |",
-            "four_categories |",
+            "six_timepoints |",
             "three_categories |",
+            "four_categories |",
             "detailed_timepoints |",
             "detailed_categories |",
             "modifiability_categories",
@@ -2274,28 +2319,34 @@ def model_metrics_bootstrapstats(
 
     res_metrics = {}
 
-    # confidence intervals of roc
-    p_roc = ((1.0 - confidence_alpha) / 2.0) * 100
-    lower_roc = max(0.0, np.percentile(roc_list, p_roc))
-    p_roc = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
-    upper_roc = min(1.0, np.percentile(roc_list, p_roc))
+    # # confidence intervals of roc
+    # p_roc = ((1.0 - confidence_alpha) / 2.0) * 100
+    # lower_roc = max(0.0, np.percentile(roc_list, p_roc))
+    # p_roc = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
+    # upper_roc = min(1.0, np.percentile(roc_list, p_roc))
+    #
+    # # confidence intervals of ap
+    # p_ap = ((1.0 - confidence_alpha) / 2.0) * 100
+    # lower_ap = max(0.0, np.percentile(average_precision_list, p_ap))
+    # p_ap = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
+    # upper_ap = min(1.0, np.percentile(average_precision_list, p_ap))
+    #
+    # res_metrics["roc_auc_score"] = np.percentile(roc_list, 50)
+    # res_metrics["roc_auc_CI"] = (lower_roc, upper_roc)
+    # res_metrics["average_precision_score"] = np.percentile(average_precision_list, 50)
+    # res_metrics["average_precision_CI"] = (lower_ap, upper_ap)
 
-    # confidence intervals of ap
-    p_ap = ((1.0 - confidence_alpha) / 2.0) * 100
-    lower_ap = max(0.0, np.percentile(average_precision_list, p_ap))
-    p_ap = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
-    upper_ap = min(1.0, np.percentile(average_precision_list, p_ap))
-
-    res_metrics["roc_auc_score"] = np.percentile(roc_list, 50)
-    res_metrics["roc_auc_CI"] = (lower_roc, upper_roc)
-    res_metrics["average_precision_score"] = np.percentile(average_precision_list, 50)
-    res_metrics["average_precision_CI"] = (lower_ap, upper_ap)
+    res_metrics["roc_auc_score"] = np.mean(roc_list)
+    res_metrics["roc_auc_CI"] = st.t.interval(alpha=0.95, df=len(roc_list) - 1, loc=np.mean(roc_list), scale=st.sem(roc_list))
+    res_metrics["average_precision_score"] = np.mean(average_precision_list)
+    res_metrics["average_precision_CI"] = st.t.interval(alpha=0.95, df=len(average_precision_list) - 1, loc=np.mean(average_precision_list), scale=st.sem(average_precision_list))
 
     return res_metrics, res_holdout
 
 # Quick Run of the ML Pipeline with different parameters
 def ml_process_run(  # Subject and Features Control
     df_child, # Merged Source data with NaN restored as NaN
+    # Split into Train & Eval and Test dataset
     exclude_inconsistent_asthma=True,
     exclude_repetitive_features=True,
     repetitive_features=(
@@ -2325,6 +2376,7 @@ def ml_process_run(  # Subject and Features Control
     pss_discretize="Ordinal",
     NaN_imputation_strategy="mode",
     imputing_correlated_subset="MissForest",
+    imputing_random_state=2021,
     indicator_threshold=500,
     collinear_level=0.97,
     # Dataset Split
@@ -2337,6 +2389,7 @@ def ml_process_run(  # Subject and Features Control
     treat_possible_as_3yCLA={2: np.nan},
     treat_possible_as_5yCLA={2: np.nan},
     # ML Process
+    time_points_progression='six_timepoints',
     coef_thresh=0.1,
     featimp_thresh=0.05,
     permutation_thresh=0.01,
@@ -2365,6 +2418,7 @@ def ml_process_run(  # Subject and Features Control
     :param include_dust: Whether or Not to include dust phthalates data in the model
     :param treat_possible_as_3yCLA: How to treat possible asthma for 3 year clinical assessment
     :param treat_possible_as_5yCLA: How to treat possible asthma for 3 year clinical assessment
+    :param time_points_progression: "six_timepoints", "five_timepoints", "four_timepoints"
     :param coef_thresh: When combining feature importance of linear models, the threshold of features to be considered.
     :param featimp_thresh: When combining feature importance of tree-based models, the threshold of features to be considered.
     :param permutation_thresh: When combining feature importance of other models, the threshold of features to be considered.
@@ -2454,6 +2508,7 @@ def ml_process_run(  # Subject and Features Control
                 NumNaNimputer(
                     add_indicator_threshold=indicator_threshold,
                     imputing_correlated_subset=imputing_correlated_subset,
+                    random_state=imputing_random_state,
                 ),
             ),
             ("collinrem", CollinearRemover(collinear_level=collinear_level)),
@@ -2481,12 +2536,17 @@ def ml_process_run(  # Subject and Features Control
 
     four_time_dict, _ = feature_grouping_generator(df, group_type="four_timepoints")
     five_time_dict, _ = feature_grouping_generator(df, group_type="five_timepoints")
+    six_time_dict, _ = feature_grouping_generator(df, group_type="six_timepoints")
     three_type_dict, _ = feature_grouping_generator(df, group_type="three_categories")
     four_type_dict, _ = feature_grouping_generator(df, group_type="four_categories")
 
+    # Progression time points dictionary for later on
+    progression_time_dict, _ = feature_grouping_generator(df, group_type=time_points_progression)
+    keys_for_all_features = "all_"+time_points_progression
+
     # Generate the df for model building
     df_with_target_selected_screened = df[
-        five_time_dict["all_five_timepoints"] | {"Asthma_Diagnosis_5yCLA"}
+        progression_time_dict[keys_for_all_features] | {"Asthma_Diagnosis_5yCLA"}
     ].copy()
 
     # Df for train & Eval and Holdout
@@ -2504,7 +2564,7 @@ def ml_process_run(  # Subject and Features Control
     ml_res_final_selected_screened = ml_res_visualization(
         df_train_eval_selected_screened,
         df_holdout_selected_screened,
-        five_time_dict,
+        progression_time_dict,
         scalar=MinMaxScaler(),
         cv=StratifiedKFold(n_splits=3, random_state=3, shuffle=True),
         priori_k=25,
@@ -4796,3 +4856,270 @@ def df_simpleimputer_scaled(df):
     )
     df_new = pd.concat([df_new, df["y"]], axis=1)
     return df_new
+
+
+
+
+###################################CLUSTERING#########################################
+###################################CLUSTERING#########################################
+###################################CLUSTERING#########################################
+###################################CLUSTERING#########################################
+###################################CLUSTERING#########################################
+###################################CLUSTERING#########################################
+
+from scipy.spatial.distance import cdist as calculate_distance_matrix
+import numpy.matlib as mlab
+from scipy.stats import norm
+
+def calculate_affinity_matrix(dist_matrix, K_neighbors=20, sd_coefficient=0.5):
+    """
+    Calculate Affinity Matrix Based on K and Local Variance
+    """
+    # Extract number of samples/patients/subjects
+    n = dist_matrix.shape[0]
+
+    # Sanity check of symmetric matrix - transformation of the distance
+    dist_matrix = (dist_matrix + dist_matrix.transpose()) / 2
+    dist_matrix_original = dist_matrix.copy()
+
+    # Sanity check of diagonal elements - should be zero as it represents the distance between the same points
+    np.fill_diagonal(dist_matrix, 0)
+
+    # Make a copy of checked dist_matrix for further operations
+    dist_matrix_checked = dist_matrix.copy()
+
+    # Sort along rows (along rows <- >axis = 1)
+    dist_matrix.sort(axis=1)
+    dist_matrix_sorted = dist_matrix.copy()
+
+    # Average Distance of K-Nearest Neighborhood for each subjects
+    # **NOTE** When calculating the mean distance for subject
+    # The number of neighbors! Not inclusive of the center - start with 1!
+
+    means_dist = np.mean(dist_matrix_sorted[:, 1: (K_neighbors + 1)], axis=1)
+
+    # Standard deviation/local variance of normal distribution to calculate probability density
+    local_variance = (
+                             mlab.repmat(means_dist.reshape(n, 1), 1, n)
+                             + mlab.repmat(means_dist, n, 1)
+                             + dist_matrix_checked
+                     ) / 3
+
+    # Sanity Check - Ensure all variance to be positive
+    local_variance_checked = np.multiply(local_variance, local_variance > 0)
+
+    # Affinity Matrix As Probability Density
+    affinity_matrix = norm.pdf(
+        dist_matrix_checked, loc=0, scale=sd_coefficient * local_variance_checked
+    )
+
+    return affinity_matrix
+
+
+def weighted_SNF(
+    affinity_matrix_list, weights_list=None, K_neighbors=20, n_fusion_iterations=20
+):
+    """
+    Calculate Fused Affinity Matrix with corresponding weights and K through specified number of iterations
+    """
+
+    # Extract number of views / aspects /categories for clustering
+    number_of_views = len(affinity_matrix_list)
+
+    # See if weights provided for different views
+    if weights_list != None:
+        if len(weights_list) != len(affinity_matrix_list):
+            print(
+                "Number of affinity matrix must equal to number of weights for each matrix"
+            )
+            return
+        normalized_weights_list = [i / sum(weights_list) for i in weights_list]
+
+    # 1. First, normalize different affinity matrix to avoid scale problems for each row
+    normalized_affinity_matrix_list = list()
+
+    for i in range(number_of_views):
+        normalized_affinity_matrix_list.append(
+            affinity_matrix_list[i] / affinity_matrix_list[i].sum(axis=1).reshape(-1, 1)
+        )
+
+    # 1.1 Sanity Check to make sure all affinity matrix is symmetric
+    for i, j in enumerate(normalized_affinity_matrix_list):
+        normalized_affinity_matrix_list[i] = (j + j.transpose()) / 2
+
+    #     # 1.2 Normalize the weight list for affinity matrix as well
+    #
+
+    # 2. Calculate local transition matrix - i.e. Edit the affinity matrix to mask out the values outside of the K nearest neigbors (dominate set)
+
+    # ************NOTE!!!***********: You are doing list copy! If the elements changed, then both list changes!********
+    # normalized_affinity_matrix_list_backup = normalized_affinity_matrix_list.copy()
+
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # Finally solved the inconsistency!!!!
+    # ************Correct Way to back-up a List containing Numpy Array*********************
+
+    normalized_affinity_matrix_list_backup = [
+        i.copy() for i in normalized_affinity_matrix_list.copy()
+    ]
+
+    local_transition_matrix_list = list()
+
+    for nam in normalized_affinity_matrix_list_backup:
+        # Alter nam in-place
+        for i, v in enumerate(nam.argsort()[:, ::-1][:, K_neighbors:]):
+            for j in v:
+                nam[
+                    i, j
+                ] = 0  # nam in normalized_affinity_matrix_list_backup -> local transition matrix through zero-lize elements out of K-NN for each subjects
+        # Attach altered nam to local_transition_matrix_list
+        local_transition_matrix_list.append(
+            nam / nam.sum(axis=1).reshape(-1, 1)
+        )  # Append normalized nam
+
+    print(
+        "Dominate Set/Local transition affinity matrix result of the first view:",
+        local_transition_matrix_list[0][:2, :2],
+    )
+
+    print(
+        "#######################Reprint affinity matrix list after KNN graph####################################"
+    )
+    print(
+        "Normalized affinity matrix of the first view:",
+        normalized_affinity_matrix_list[0][:2, :2],
+    )
+
+    print(
+        "Normalized affinity matrix backup of the second view:",
+        normalized_affinity_matrix_list_backup[1][:2, :2],
+    )
+
+    # Step 3. Calculate diffused affinity matrix through two-directional linear matrix operation
+
+    fused_local_matrix_list = list(range(number_of_views))
+
+    for i in range(n_fusion_iterations):
+        print("#######################Iterations####################################")
+        print("Current iteration : ", i + 1)
+
+        for j in range(number_of_views):
+            # Calculate the sum of affinity matrix for the view to be operated on excluding the current affinity matrix
+            print(
+                "#######################Iterations####################################"
+            )
+            print("Current view : ", j + 1)
+            sum_of_affinity_matrix = np.zeros(normalized_affinity_matrix_list[j].shape)
+            for k in range(number_of_views):
+                if k != j:
+                    sum_of_affinity_matrix = (
+                        sum_of_affinity_matrix + normalized_affinity_matrix_list[k]
+                    )
+            print(
+                "Sum of affinity without current view :", sum_of_affinity_matrix[:2, :2]
+            )
+
+            # Step 1: DONE: sum_of_affinity_matrix - obtained
+            # Step 2: Calculate the fused local affinity matrix
+
+            fused_local_matrix_list[j] = (
+                local_transition_matrix_list[j]
+                @ (sum_of_affinity_matrix / (number_of_views - 1))
+                @ local_transition_matrix_list[j].transpose()
+            )
+
+            print(
+                "Diffused local matrix of current view :",
+                fused_local_matrix_list[j][:2, :2],
+            )
+
+        print(
+            "#########Updating affinity matrix list for iteration {}################".format(
+                i + 1
+            )
+        )
+        # Rewrite/Update the "normalized_affinity_matrix_list" using fused matrix list for the next iteration
+        for j in range(number_of_views):
+
+            normalized_affinity_matrix_list[j] = fused_local_matrix_list[j] + np.eye(
+                normalized_affinity_matrix_list[j].shape[0]
+            )
+            normalized_affinity_matrix_list[j] = (
+                normalized_affinity_matrix_list[j]
+                + normalized_affinity_matrix_list[j].transpose()
+            ) / 2
+
+            print(
+                "Updated affinity matrix of current view:",
+                normalized_affinity_matrix_list[j][:2, :2],
+            )
+
+    # 4. Add the diffused affinity matrix list together!
+    # For the final merging the weight for each view will be used ***
+    final_fused_affinity_matrix = np.zeros(normalized_affinity_matrix_list[0].shape)
+
+    if weights_list != None:
+        for i, j in zip(normalized_affinity_matrix_list, normalized_weights_list):
+            final_fused_affinity_matrix = final_fused_affinity_matrix + i * j
+
+        print(
+            "Final affinity matrix - Weighted Sum :",
+            final_fused_affinity_matrix[:2, :2],
+        )
+
+    else:
+        for i in range(number_of_views):
+            final_fused_affinity_matrix = (
+                final_fused_affinity_matrix + normalized_affinity_matrix_list[i]
+            )
+        print(
+            "#######################Final Affinity Matrix####################################"
+        )
+        print("Final affinity matrix - Sum-up :", final_fused_affinity_matrix[:2, :2])
+
+        final_fused_affinity_matrix = final_fused_affinity_matrix / number_of_views
+
+        print("Final affinity matrix - Mean :", final_fused_affinity_matrix[:2, :2])
+
+    final_fused_affinity_matrix = final_fused_affinity_matrix / final_fused_affinity_matrix.sum(
+        axis=1
+    ).reshape(
+        -1, 1
+    )
+
+    print("Final affinity matrix - Normalized :", final_fused_affinity_matrix[:5, :5])
+
+    final_fused_affinity_matrix = (
+        final_fused_affinity_matrix
+        + final_fused_affinity_matrix.transpose()
+        + np.eye(final_fused_affinity_matrix.shape[0])
+    ) / 2
+
+    print("Final affinity matrix - Completed :", final_fused_affinity_matrix[:5, :5])
+
+    return final_fused_affinity_matrix
+
+def weighted_SNF(list_of_data,data_content='original',weights_list=None, K_neighbors=20, sd_coefficient=0.5, n_fusion_iterations=20 ):
+    """
+    :param list_of_data:
+    :param data_content: string, default, "original"
+            Other alternative include: "distance", "affinity"
+    :param weights_list:
+    :param K_neighbors:
+    :param sd_coefficient:
+    :param n_fusion_iterations:
+    :return:
+    """
+
+    if data_content == "original":
+        dist_matrix_list = [calculate_distance_matrix(i,i,metric="euclidean") for i in list_of_data]
+        affinity_matrix_list = [calculate_affinity_matrix(i, K_neighbors=K_neighbors, sd_coefficient=sd_coefficient) for i in dist_matrix_list]
+        fused_matrix = weighted_SNF(affinity_matrix_list=affinity_matrix_list, K_neighbors=K_neighbors, n_fusion_iterations=n_fusion_iterations,)
+        return fused_matrix
+    elif data_content == "distance":
+        affinity_matrix_list = [calculate_affinity_matrix(i, K_neighbors=K_neighbors, sd_coefficient=sd_coefficient) for i in list_of_data]
+        fused_matrix = weighted_SNF(affinity_matrix_list=affinity_matrix_list, K_neighbors=K_neighbors, n_fusion_iterations=n_fusion_iterations,)
+        return fused_matrix
+    elif data_content == "affinity":
+        fused_matrix = weighted_SNF(affinity_matrix_list=list_of_data, weights_list=weights_list, K_neighbors=K_neighbors, n_fusion_iterations=n_fusion_iterations)
+        return fused_matrix

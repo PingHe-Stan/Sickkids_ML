@@ -958,7 +958,7 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
     :return Imputed X that could be directly put into ML models
     """
 
-    def __init__(self, add_indicator_threshold=30, imputing_correlated_subset="KNN"):
+    def __init__(self, add_indicator_threshold=30, imputing_correlated_subset="KNN", random_state=2021):
         super().__init__()
         self.add_indicator_threshold = add_indicator_threshold
         self.imputing_correlated_subset = imputing_correlated_subset
@@ -974,9 +974,9 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
             self.Weight_imputer = KNNImputer()
             self.RESP_imputer = KNNImputer()
         else:
-            self.BF_imputer = MissForest()
-            self.Weight_imputer = MissForest()
-            self.RESP_imputer = MissForest()
+            self.BF_imputer = MissForest(random_state=random_state)
+            self.Weight_imputer = MissForest(random_state=random_state)
+            self.RESP_imputer = MissForest(random_state=random_state)
         self.Binary_ignore_missing = SimpleImputer(
             add_indicator=False, strategy="most_frequent"
         )
