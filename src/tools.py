@@ -791,7 +791,7 @@ def ml_res_visualization(
     # Decision Tree
     dt = DecisionTreeClassifier(
         criterion="gini",
-#        max_depth=6,  # Previous is None
+        max_depth=4,  # Previous is None
         class_weight="balanced",
         random_state=2021,
     )
@@ -825,7 +825,8 @@ def ml_res_visualization(
     model_name_full = [i[1] for i in list(ml_name_dict.values())]
     model_res = list(ml_res_dict.values())
     # Exclude the last one to extract time points
-    time_points = list(time_variables_dict.keys())[:-1]
+    # time_points = list(time_variables_dict.keys())[:-1]
+    time_points = [i for i in time_variables_dict.keys() if "all_" not in i]
     model_metrics = [
         "Precision",
         "Recall",
@@ -1303,7 +1304,7 @@ def ml_ensemble_res(
             "dt",
             DecisionTreeClassifier(
                 criterion="gini",
-#                max_depth=6,  # Previous is None
+                max_depth=4,  # Previous is None
                 class_weight="balanced",
                 random_state=2021,
             ),
@@ -1565,7 +1566,7 @@ def ml_individual_res(
     # Decision Tree
     dt = DecisionTreeClassifier(
         criterion="gini",
-#        max_depth=6,  # Previous is None
+        max_depth=4,  # Previous is None!
         class_weight="balanced",
         random_state=2021,
     )
@@ -1728,7 +1729,6 @@ def ml_individual_performance(df_train_eval,
     return timepoint_res_dict
 
 
-
 # Automatic Feature Selection At Multiple time-points  with "specific" ML model
 def ml_autofs_multiplepoints(
         df_train_eval,
@@ -1745,7 +1745,9 @@ def ml_autofs_multiplepoints(
 ):
     # Keep feature selection results in multiple time points
     # Last key is the summation for all previous features
-    timepoints_list = list(time_variables_dict.keys())[:-1]
+#    timepoints_list = list(time_variables_dict.keys())[:-1]
+    # Remove the element with naming containing 'all_'
+    timepoints_list = [i for i in time_variables_dict.keys() if "all_" not in i]
 
     res = {}
     prior_features = set()
@@ -1978,7 +1980,7 @@ def ml_feature_selection(
     # Decision Tree
     dt = DecisionTreeClassifier(
         criterion="gini",
-#        max_depth=6,  # Previous is None
+        max_depth=4,  # Previous is None
         class_weight="balanced",
         random_state=2021,
     )
@@ -2271,33 +2273,63 @@ def model_result_holdout(
     return holdout_result, estimator
 
 
-# Final Model Performance with bootstrapping - Confidence Interval calculations
-def model_metrics_bootstrapstats(
+# Perform sensitivity test - Test how sampling/input variable can impact the outcome
+# Measure the variability of the performance AUROC/AUPRC
+def model_sensitivity_test(
         df_train_eval,
         df_holdout,
         feature_columns_selected,
         target_name="Asthma_Diagnosis_5yCLA",
-        bootstrap_replace=False,
-        bootstrap_iterations=80,
-        subset_percentage=0.95,
+        train_dataset_resampling_strategy="Sub_resampling, Bootstrapping",
+        interval_calculation_strategy="T-test, Z-test, Percentile, Standard_deviation, Bootstrapping_sampling",
+        statistic_of_interest=np.median,
+        resample_replace=False,
+        resample_percentage=0.95,
+        n_iterations=80,
         confidence_alpha=0.95,
         estimator=LogisticRegression(class_weight="balanced"),
         scalar=MinMaxScaler(),
 ):
+    """
+    Perform sensitivity test - Test how sampling of observations/subjects can impact the ML performance,
+    test the robustness/variability of the current selection of features for ML predictive power.
+    :param df_train_eval: df to train model
+    :param df_holdout: df to test model
+    :param feature_columns_selected: features list
+    :param target_name: label to predict
+    :param train_dataset_resampling_strategy: str, default "Sub_resampling"
+        The alternative is "Bootstrapping". For "Sub_resampling", the resample_replace normally set to false, and resampling percentage can be individualized.
+        For "Bootstrapping", resample_replace must be True, and "resample_percentage" must be 1.
+    :param interval_calculation_strategy: str, default "Percentile"
+        A more accurate variability test for the variability of ML predictive power would use "Percentile", it can be 2.5 percent to 97.5 percent, given confidence_alpha is 0.95
+        Or Standard deviation to evaluate the spread/dispersion of predictive power.
+        Or confidence interval of the n_iterations of resampled outcomes can be calculated based on central limit theorem inferred from "t-test/z-test" to infer the variability/confidence interval of the "population" mean or median.
+        Or it can be calculated using "bootstrap resampling" of the resampled outcomes for n=9999 times, (significant large) then use "percentile" to represent the variability of the mean/median for the sample.
+    :param statistic_of_interest: func, default: np.mean, it can also be np.std, np.median
+    :param resample_replace: boolean
+    :param resample_percentage: float between 0 and 1
+    :param n_iterations: int to generate different model result from same feature selection
+    :param confidence_alpha: float between 0 and 1
+    :param estimator:
+    :param scalar:
+    :return:
+    """
     # For stratification X,y will be created for df_train_eval
     X = df_train_eval.drop(columns=target_name)
     y = df_train_eval[target_name]
 
     roc_list = []
     average_precision_list = []
-    for i in tqdm(range(bootstrap_iterations)):
+    for i in tqdm(range(n_iterations)):
+        # Set Random Seed for reproducibility
+        current_random_state = int((i+1)*3)
         X_resampled, y_resampled = resample(
             X,
             y,
-            replace=bootstrap_replace,
-            n_samples=int(subset_percentage * (len(y))),
+            replace=resample_replace,
+            n_samples=int(resample_percentage * (len(y))),
             stratify=y,
-            random_state=None,
+            random_state=current_random_state,
         )
         df_train_eval_bts = pd.concat([X_resampled, y_resampled], axis=1)
         res_holdout = model_result_holdout(
@@ -2337,9 +2369,86 @@ def model_metrics_bootstrapstats(
     # res_metrics["average_precision_CI"] = (lower_ap, upper_ap)
 
     res_metrics["roc_auc_score"] = np.mean(roc_list)
-    res_metrics["roc_auc_CI"] = st.t.interval(alpha=0.95, df=len(roc_list) - 1, loc=np.mean(roc_list), scale=st.sem(roc_list))
+    res_metrics["roc_auc_CI"] = st.t.interval(alpha=confidence_alpha, df=len(roc_list) - 1, loc=np.mean(roc_list), scale=st.sem(roc_list))
     res_metrics["average_precision_score"] = np.mean(average_precision_list)
-    res_metrics["average_precision_CI"] = st.t.interval(alpha=0.95, df=len(average_precision_list) - 1, loc=np.mean(average_precision_list), scale=st.sem(average_precision_list))
+    res_metrics["average_precision_CI"] = st.t.interval(alpha=confidence_alpha, df=len(average_precision_list) - 1, loc=np.mean(average_precision_list), scale=st.sem(average_precision_list))
+
+    return res_metrics, res_holdout
+
+
+
+# Final Model Performance with bootstrapping - Confidence Interval calculations
+def model_metrics_bootstrapstats(
+        df_train_eval,
+        df_holdout,
+        feature_columns_selected,
+        target_name="Asthma_Diagnosis_5yCLA",
+        bootstrap_replace=False,
+        bootstrap_iterations=80,
+        subset_percentage=0.95,
+        confidence_alpha=0.95,
+        estimator=LogisticRegression(class_weight="balanced"),
+        scalar=MinMaxScaler(),
+):
+    # For stratification X,y will be created for df_train_eval
+    X = df_train_eval.drop(columns=target_name)
+    y = df_train_eval[target_name]
+
+    roc_list = []
+    average_precision_list = []
+    for i in tqdm(range(bootstrap_iterations)):
+        # Set Random Seed for reproducibility
+        current_random_state = int((i+1)*3)
+        X_resampled, y_resampled = resample(
+            X,
+            y,
+            replace=bootstrap_replace,
+            n_samples=int(subset_percentage * (len(y))),
+            stratify=y,
+            random_state=current_random_state,
+        )
+        df_train_eval_bts = pd.concat([X_resampled, y_resampled], axis=1)
+        res_holdout = model_result_holdout(
+            df_train_eval_bts,
+            df_holdout,
+            feature_columns_selected,
+            target_name,
+            random_state_for_eval_split=123,
+            eval_positive_number=30,
+            eval_negative_number=150,
+            train_eval_separation_to_fit=False,
+            estimator=estimator,
+            scalar=scalar,
+            voting=None,
+            display=False,
+        )
+        roc_list.append(res_holdout[0]["roc_auc_score"])
+        average_precision_list.append(res_holdout[0]["average_precision_score"])
+
+    res_metrics = {}
+
+    # confidence intervals of roc
+    p_roc = ((1.0 - confidence_alpha) / 2.0) * 100
+    lower_roc = max(0.0, np.percentile(roc_list, p_roc))
+    p_roc = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
+    upper_roc = min(1.0, np.percentile(roc_list, p_roc))
+
+    # confidence intervals of ap
+    p_ap = ((1.0 - confidence_alpha) / 2.0) * 100
+    lower_ap = max(0.0, np.percentile(average_precision_list, p_ap))
+    p_ap = (confidence_alpha + ((1.0 - confidence_alpha) / 2.0)) * 100
+    upper_ap = min(1.0, np.percentile(average_precision_list, p_ap))
+
+    res_metrics["roc_auc_score"] = np.percentile(roc_list, 50)
+    res_metrics["roc_auc_CI"] = (lower_roc, upper_roc)
+    res_metrics["average_precision_score"] = np.percentile(average_precision_list, 50)
+    res_metrics["average_precision_CI"] = (lower_ap, upper_ap)
+
+    # Use T-test/Z-test to infer the variability of original population
+    # res_metrics["roc_auc_score"] = np.mean(roc_list)
+    # res_metrics["roc_auc_CI"] = st.t.interval(alpha=confidence_alpha, df=len(roc_list) - 1, loc=np.mean(roc_list), scale=st.sem(roc_list))
+    # res_metrics["average_precision_score"] = np.mean(average_precision_list)
+    # res_metrics["average_precision_CI"] = st.t.interval(alpha=confidence_alpha, df=len(average_precision_list) - 1, loc=np.mean(average_precision_list), scale=st.sem(average_precision_list))
 
     return res_metrics, res_holdout
 
@@ -2737,7 +2846,7 @@ def df_ml_run(
     # Decision Tree
     dt = DecisionTreeClassifier(
         criterion="gini",
-#        max_depth=6,  # Previous is None
+        max_depth=4,  # Previous is None
         class_weight="balanced",
         random_state=2021,
     )
@@ -4087,7 +4196,7 @@ def ml_tuned_run(df_train_eval,
     # Decision Tree
     clf_dt = DecisionTreeClassifier(
         criterion="gini",
-#        max_depth=6,  # Previous is None
+        max_depth=4,  # Previous is None
         class_weight="balanced",
         random_state=2021,
     )
@@ -4856,9 +4965,6 @@ def df_simpleimputer_scaled(df):
     )
     df_new = pd.concat([df_new, df["y"]], axis=1)
     return df_new
-
-
-
 
 ###################################CLUSTERING#########################################
 ###################################CLUSTERING#########################################

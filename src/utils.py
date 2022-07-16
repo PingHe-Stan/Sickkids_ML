@@ -1,6 +1,6 @@
 __author__ = 'Stan He@Sickkids.ca'
 __contact__ = 'stan.he@sickkids.ca'
-__date__ = ['2021-10-15', '2022-02-04']
+__date__ = ['2021-10-15', '2022-02-04', '2022-07-11']
 """Preprocessing pipeline components
 """
 
@@ -962,6 +962,7 @@ class NumNaNimputer(BaseEstimator, TransformerMixin):
         super().__init__()
         self.add_indicator_threshold = add_indicator_threshold
         self.imputing_correlated_subset = imputing_correlated_subset
+        self.random_state = random_state
         self.num_strategies = (
             {}
         )  # Dictionary to store columns for different kind of groups for imputing
