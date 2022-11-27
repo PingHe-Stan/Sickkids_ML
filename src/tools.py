@@ -3,8 +3,9 @@ __contact__ = 'stan.he@sickkids.ca'
 __date__ = ['2021-10-21', '2021-10-26', '2021-10-29', '2021-11-01',
             '2021-11-08', '2021-11-19', '2021-12-08', '2021-12-14', '2022-01-04',
             '2022-01-12', '2022-01-27', '2022-02-04', '2022-02-07', '2022-02-11',
-            "2022-02-17", '2022-03-16', '2022-03-24', '2022-04-13', "2020-05-05",
-            "2020-05-08", "2020-05-14", '2022-07-06', '2022-07-08', "2020-07-11"]
+            "2022-02-17", '2022-03-16', '2022-03-24', '2022-04-13', "2022-05-05",
+            "2022-05-08", "2020-05-14", '2022-07-06', '2022-07-08', "2022-07-11",
+            "2022-11-27"]
 
 """Gadgets for various tasks 
 """
@@ -147,6 +148,50 @@ def load_child_with_more(
     print(f"The dataframe merged with more information is saved to {CHILD_RAW_DIR} as 'CHILD_with_addon.xlsx'")
 
     return df_child
+
+
+# Load rhinitis data for analysis
+def load_child_with_rhin(df_child,path_to_rhin="../data/3 year Q378CHCLA3Y.xlsx"):
+    """
+    :param df_child: original dataframe
+    :param path_to_rhin: new information to be extracted from
+    :return: (1) df_child_with_rhin (2) df_rhin_for_compare (Subset fo dataframe for specific comparison
+    """
+    df_child_cla3 = pd.read_excel(path_to_rhin)
+    df_rhinitis = (
+        df_child_cla3[["CHCLA3YQ9", "CHCLA3YQ32", "SubjectNumber"]]
+            .replace({8888: np.nan, 999: np.nan})
+            .rename(
+            columns={
+                "CHCLA3YQ9": "Child_Rhinitis_3yCLA",
+                "CHCLA3YQ32": "Child_AllergicRhinitis_3yCLA",
+                "SubjectNumber": "Subject_Number",
+            }
+        )
+            .copy()
+    )
+    df_child_with_rhin = (
+        df_child.reset_index().merge(df_rhinitis, on="Subject_Number").copy()
+    )
+
+    df_rhin_compare = (
+        df_child_with_rhin[
+            [
+                "Child_Rhinitis_3yCLA",
+                "Child_AllergicRhinitis_3yCLA",
+                "Wheeze_3yCLA",
+                "Child_Atopy_3y",
+                "Child_Inhalant_3y",
+                "Asthma_Diagnosis_3yCLA",
+                "Asthma_Diagnosis_5yCLA",
+            ]
+        ]
+            .dropna()
+            .reset_index(drop=True)
+            .copy()
+    )
+
+    return df_child_with_rhin.set_index("Subject_Number"), df_rhin_compare
 
 
 # Extract index_number from raw dataset for all further modelling, training, evaluation, and holdout testing
@@ -3739,7 +3784,6 @@ def df_summary(X):
 
     return df_overview
 
-
 # Gadget to view the asthma proportions for different columns during feature selection
 def view_y_proportions(df, columns_of_interest, thresh=0):
     """
@@ -3814,7 +3858,7 @@ def view_y_proportions(df, columns_of_interest, thresh=0):
 
 # Perform statistical testing of all existing features using Chi-square and T-test for two populations (asthma,
 # no asthma)
-def df_feature_stats(df_child, target='y'):
+def df_feature_stats(df_child, target="y"):
     """df_child is cleaned dataframe with y as target of testing, categorical feature is defined as no more than 10 unqiue values (frequencies), numeric features are the rest.
     """
     numeric_col = []
@@ -3824,49 +3868,218 @@ def df_feature_stats(df_child, target='y'):
             numeric_col.append(i)
         elif i != target:
             categorical_col.append(i)
+    print("The numeric columns are: ", numeric_col)
+    print("The categorical columns are: ", categorical_col)
 
-    # Create numeric stats dataframe
-    numeric_dict = {}
-    print("diff represents the mean value of non-asthma group minus the mean value of asthma group.")
-    for i in numeric_col:
-        # Calculate difference of mean value - [Asthma Group - No_Asthma Group]
-        diff_mean = np.mean(df_child[df_child[target] == 0][i]) - np.mean(df_child[df_child[target] == 1][i])
+    # Initialize for return
+    numeric_feature_stats = None
+    categorical_feature_stats = None
 
-        # Perform independent t-test for two populations
-        temp = pg.ttest(
-            df_child[df_child[target] == 0][i],
-            df_child[df_child[target] == 1][i],
-            paired=False,
-            alternative="two-sided",
-            correction="auto",
-        ).rename(index={"T-test": i})
-
-        # Insert extra information
-        temp.insert(4, "diff", diff_mean)
-
-        # Store the result
-        numeric_dict[i] = temp
-
-    numeric_feature_stats = pd.concat([v for k, v in numeric_dict.items()], axis=0).sort_values('p-val')
-
-    # Create categorical stats dataframe
-    categorical_dict = {}
-    for i in categorical_col:
-        # Perform Chi Square Test for categorical features for two populations (with or without asthma)
-        expected, observed, stats = pg.chi2_independence(
-            df_child,
-            x=i,
-            y=target,
-            correction=False,
+    if len(numeric_col) != 0:
+        # Create numeric stats dataframe
+        numeric_dict = {}
+        print(
+            "diff represents the mean value of non-asthma group minus the mean value of asthma group."
         )
-        stats.rename(index={0: i}, inplace=True)
+        for i in numeric_col:
+            # Calculate difference of mean value - [Asthma Group - No_Asthma Group]
+            diff_mean = np.mean(df_child[df_child[target] == 0][i]) - np.mean(
+                df_child[df_child[target] == 1][i]
+            )
 
-        # Store 'Pearson' Chi-Square Result
-        categorical_dict[i] = stats[:1]
+            # Perform independent t-test for two populations
+            temp = pg.ttest(
+                df_child[df_child[target] == 0][i],
+                df_child[df_child[target] == 1][i],
+                paired=False,
+                alternative="two-sided",
+                correction="auto",
+            ).rename(index={"T-test": i})
 
-    categorical_feature_stats = pd.concat([v for k, v in categorical_dict.items()], axis=0).sort_values('pval')
+            # Insert extra information
+            temp.insert(4, "diff", diff_mean)
+
+            # Store the result
+            numeric_dict[i] = temp
+
+        numeric_feature_stats = pd.concat(
+            [v for k, v in numeric_dict.items()], axis=0
+        ).sort_values("p-val")
+    else:
+        print("There is no numeric feature to perform t-test analysis!")
+
+    if len(categorical_col) != 0:
+        # Create categorical stats dataframe
+        categorical_dict = {}
+        for i in categorical_col:
+            # Perform Chi Square Test for categorical features for two populations (with or without asthma)
+            expected, observed, stats = pg.chi2_independence(
+                df_child, x=i, y=target, correction=False,
+            )
+            stats.rename(index={0: i}, inplace=True)
+
+            # Store 'Pearson' Chi-Square Result
+            categorical_dict[i] = stats[:1]
+
+        categorical_feature_stats = pd.concat(
+            [v for k, v in categorical_dict.items()], axis=0
+        ).sort_values("pval")
+    else:
+        print("There is no categorical feature to perform chi-square test!")
 
     return numeric_feature_stats, categorical_feature_stats
+
+
+# Peform Categorical Feature - Prevalence Analysis
+def asthma_prevalence_analysis(
+    df,
+    feature_list=["Child_Rhinitis_3yCLA"],
+    target="Asthma_Diagnosis_5yCLA",
+    target_encode_mapping={0: "No", 1: "Yes", 2: "Possible"},
+):
+    """
+    Provide visualization for the prevalence of target for different groups with specific feature.
+    1. df: dataframe to be analyzed -- NaN already excluded in the df
+    2. features: list, maximum: two elements (Univariate, Bivariate prevalence analysis)
+    Return: visualization with proportions
+    """
+    df[target] = df[target].replace({0: "No", 1: "Yes", 2: "Possible"}).copy()
+    hue_for_plot = ["No", "Possible", "Yes"]
+    if len(feature_list) == 1:
+        feature = feature_list[0]
+        g = sns.catplot(
+            x=feature, hue=target, hue_order=hue_for_plot, data=df, kind="count"
+        )
+
+        # Add proportion information for easy comparison in the plot
+        ax = g.facet_axis(0, 0)
+
+        # Create the attach proportions to the plot
+        x_position = []
+        height_position = []
+        height_position_new = []
+
+        for p in ax.patches:
+            x_position.append(p.get_x())
+            height_position.append(p.get_height())
+
+        # X position is not generated in an ascending order (from left to right)
+        # Rearrange the height position as it was not generated according to the ascending order of x position
+        zipped = sorted([(m, n) for m, n in zip(x_position, height_position)])
+        x_position = [i for i, j in zipped]
+        height_position = [j for i, j in zipped]
+
+        subset_number = len(target_encode_mapping.keys())  # Number of target types
+        for i in range(len(height_position)):
+            if i < subset_number:
+                height_position_new.append(
+                    height_position[i] / np.nansum(height_position[0:subset_number])
+                )
+            elif i < 2 * subset_number:
+                height_position_new.append(
+                    height_position[i]
+                    / np.nansum(height_position[subset_number : subset_number * 2])
+                )
+            elif i < 3 * subset_number:
+                height_position_new.append(
+                    height_position[i]
+                    / np.nansum(height_position[subset_number * 2 : subset_number * 3])
+                )
+            else:
+                height_position_new.append(
+                    height_position[i] / np.nansum(height_position[subset_number * 3 :])
+                )
+
+        for i in range(len(height_position)):
+            ax.text(
+                x_position[i] + 0.0,
+                height_position[i] + 30,
+                "{0:.0f}({1:2.0f}%)".format(
+                    height_position[i], height_position_new[i] * 100
+                ),  # Used to format it K representation
+                color="black",
+                rotation=20,
+                size=11,
+            )
+
+    elif len(feature_list) == 2:
+        primary = feature_list[0]
+        secondary = feature_list[1]
+        g = sns.catplot(
+            x=primary,
+            col=secondary,
+            hue=target,
+            hue_order=hue_for_plot,
+            data=df,
+            kind="count",
+        )
+
+        # Number of cols in the final visualizations
+        for j in range(len(df[secondary].unique())):
+            ax = g.facet_axis(0, j)
+            # Create the following to calculate proportion
+            x_position = []
+            height_position = []
+            height_position_new = []
+
+            for p in ax.patches:
+                #     ax.text(p.get_x() + 0.05,
+                #             p.get_height() * 1.02,
+                #            '{0:.0f}'.format(p.get_height()),   #Used to format it K representation
+                #             color='black',
+                #             rotation='horizontal',
+                #             size='large')
+                x_position.append(p.get_x())
+                height_position.append(p.get_height())
+
+            # X position is not generated in an ascending order (from left to right)
+            # Rearrange the height position as it was not generated according to the ascending order of x position
+            zipped = sorted([(m, n) for m, n in zip(x_position, height_position)])
+            x_position = [i for i, j in zipped]
+            height_position = [j for i, j in zipped]
+
+            subset_number = len(
+                target_encode_mapping.keys()
+            )  # Number of bars in display for each type of primary feature
+
+            for i in range(len(height_position)):
+                if i < subset_number:
+                    height_position_new.append(
+                        height_position[i] / np.nansum(height_position[0:subset_number])
+                    )
+                elif i < 2 * subset_number:
+                    height_position_new.append(
+                        height_position[i]
+                        / np.nansum(height_position[subset_number : subset_number * 2])
+                    )
+                elif i < 3 * subset_number:
+                    height_position_new.append(
+                        height_position[i]
+                        / np.nansum(
+                            height_position[subset_number * 2 : subset_number * 3]
+                        )
+                    )
+                else:
+                    height_position_new.append(
+                        height_position[i]
+                        / np.nansum(height_position[subset_number * 3 :])
+                    )
+
+            for i in range(len(height_position)):
+                ax.text(
+                    x_position[i] + 0.0,
+                    height_position[i] + 30,
+                    "{0:.0f}({1:2.0f}%)".format(
+                        height_position[i], height_position_new[i] * 100
+                    ),  # Used to format it K representation
+                    color="black",
+                    rotation=20,
+                    size=11,
+                )
+    else:
+        print(
+            "Wrong number of elements for analysis! The length of feature_list can only be one or two! "
+        )
 
 
 # Perform alluvial analysis for target variables (visualization)
